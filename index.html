@@ -652,6 +652,82 @@ footer strong { color: var(--gold-light); }
   text-align: center; padding: 6px; border-top: 1px solid var(--card-border);
 }
 
+/* ── Admin dashboard ──────────────────────────────────────── */
+#admin-link {
+  margin-top: 12px; background: none; border: 1px solid var(--card-border);
+  color: var(--text-muted); border-radius: 8px; padding: 6px 14px;
+  font-size: .78rem; cursor: pointer; transition: all .2s;
+}
+#admin-link:hover { border-color: var(--gold); color: var(--gold-light); }
+
+.admin-modal {
+  position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,.88); backdrop-filter: blur(6px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 20px; overflow-y: auto;
+}
+.admin-modal.hidden { display: none; }
+.admin-box {
+  background: var(--card); border: 1px solid rgba(201,162,39,.4);
+  border-radius: var(--radius); padding: 28px 22px;
+  max-width: 760px; width: 100%; position: relative;
+  margin: auto; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+.admin-close {
+  position: absolute; top: 14px; right: 14px;
+  background: none; border: none; color: var(--text-muted);
+  font-size: 1.3rem; cursor: pointer;
+}
+.admin-close:hover { color: var(--text); }
+.admin-box h2 {
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; font-size: 1.3rem; margin-bottom: 16px;
+}
+#admin-pin-gate { text-align: center; padding: 20px 0; }
+#admin-pin-gate p { color: var(--text-muted); font-size: .9rem; margin-bottom: 16px; }
+#admin-pin-input {
+  width: 200px; background: var(--dark3); border: 1.5px solid var(--card-border);
+  border-radius: 10px; padding: 12px 16px; color: var(--text);
+  font-size: 1.2rem; text-align: center; letter-spacing: .3em; outline: none;
+}
+#admin-pin-input:focus { border-color: var(--gold); }
+.admin-pin-error { color: #f87171; font-size: .85rem; min-height: 18px; margin-top: 8px !important; }
+.admin-unlock-btn {
+  display: block; margin: 12px auto 0;
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  color: var(--dark); border: none; border-radius: 10px;
+  padding: 11px 26px; font-weight: 800; cursor: pointer;
+}
+.admin-section-title {
+  font-size: .85rem; color: var(--gold-light); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em;
+  margin: 22px 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--card-border);
+}
+.admin-table-wrap { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.admin-table th {
+  text-align: left; color: var(--text-muted); font-weight: 600;
+  padding: 6px 8px; border-bottom: 1px solid var(--card-border); white-space: nowrap;
+}
+.admin-table td { padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,.04); }
+.admin-bal { color: #4ade80; font-weight: 700; }
+.admin-dim { color: var(--text-muted); font-size: .78rem; }
+.admin-att-row { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+.admin-att-match { font-weight: 600; font-size: .86rem; margin-bottom: 4px; }
+.admin-att-names { display: flex; flex-direction: column; gap: 2px; font-size: .8rem; }
+.admin-yes { color: #4ade80; }
+.admin-no { color: #f87171; }
+.admin-bet-match { font-weight: 700; font-size: .82rem; color: var(--gold-light); margin: 10px 0 4px; }
+.admin-bet-row { font-size: .8rem; padding: 2px 0; color: var(--text); }
+.admin-refresh {
+  margin-top: 20px; width: 100%; background: var(--dark3);
+  border: 1px solid var(--card-border); color: var(--text);
+  border-radius: 8px; padding: 10px; cursor: pointer; font-size: .85rem;
+}
+.admin-refresh:hover { border-color: var(--gold); }
+
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {
   .match-teams { padding: 16px 12px 10px; }
@@ -738,7 +814,24 @@ footer strong { color: var(--gold-light); }
 
 <footer>
   <p>Mis à jour en temps réel · <strong>Coupe du Monde FIFA 2026</strong> · On va tout déchirer 🔥</p>
+  <button id="admin-link" onclick="openAdmin()">⚙️ Espace organisateur</button>
 </footer>
+
+<!-- Admin dashboard -->
+<div id="admin-modal" class="admin-modal hidden">
+  <div class="admin-box">
+    <button class="admin-close" onclick="closeAdmin()">✕</button>
+    <div id="admin-pin-gate">
+      <h2>⚙️ Espace organisateur</h2>
+      <p>Entre le code PIN pour accéder au tableau de bord.</p>
+      <input type="password" id="admin-pin-input" inputmode="numeric" placeholder="Code PIN"
+        onkeydown="if(event.key==='Enter')unlockAdmin()" />
+      <p id="admin-pin-error" class="admin-pin-error"></p>
+      <button class="admin-unlock-btn" onclick="unlockAdmin()">Déverrouiller 🔓</button>
+    </div>
+    <div id="admin-dashboard" class="hidden"></div>
+  </div>
+</div>
 
 <script>
 // ── Data ────────────────────────────────────────────────────
@@ -1075,7 +1168,18 @@ function subscribeBalances() {
   }));
 }
 
-// Crée le compte joueur (100 €) si inexistant
+// Crée le compte joueur (100 €) si inexistant + suivi présence/installation
+function detectPlatform() {
+  const ua = navigator.userAgent;
+  if (/iphone|ipad|ipod/i.test(ua)) return "iOS";
+  if (/android/i.test(ua)) return "Android";
+  return "Ordinateur";
+}
+function isInstalled() {
+  return window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+}
+
 async function ensureBalance() {
   if (!currentUser) return;
   if (!db) {
@@ -1087,11 +1191,29 @@ async function ensureBalance() {
   const { doc, getDoc, setDoc } = window._firebaseModules;
   const ref = doc(db, "users", currentUser.id);
   const snap = await getDoc(ref);
+  const presence = {
+    name: currentUser.name,
+    platform: detectPlatform(),
+    lastSeen: Date.now(),
+  };
+  if (isInstalled()) { presence.installed = true; presence.installedAt = presence.installedAt || Date.now(); }
   if (!snap.exists()) {
-    await setDoc(ref, { name: currentUser.name, balance: START_BALANCE });
-  } else if (snap.data().name !== currentUser.name) {
-    await setDoc(ref, { name: currentUser.name }, { merge: true });
+    await setDoc(ref, { ...presence, balance: START_BALANCE, firstSeen: Date.now() });
+  } else {
+    await setDoc(ref, presence, { merge: true });
   }
+}
+
+// Marque l'app comme installée (événement Android natif)
+function trackInstall() {
+  window.addEventListener("appinstalled", async () => {
+    if (!db || !currentUser) return;
+    try {
+      const { doc, setDoc } = window._firebaseModules;
+      await setDoc(doc(db, "users", currentUser.id),
+        { installed: true, installedAt: Date.now() }, { merge: true });
+    } catch (_) {}
+  });
 }
 
 function myBalance() {
@@ -2060,11 +2182,119 @@ async function registerSW() {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  ESPACE ORGANISATEUR (tableau de bord admin)
+// ════════════════════════════════════════════════════════════
+function openAdmin() {
+  const modal = document.getElementById("admin-modal");
+  modal.classList.remove("hidden");
+  if (sessionStorage.getItem("wc2026_admin") === "1") {
+    document.getElementById("admin-pin-gate").classList.add("hidden");
+    document.getElementById("admin-dashboard").classList.remove("hidden");
+    renderAdminDashboard();
+  } else {
+    document.getElementById("admin-pin-gate").classList.remove("hidden");
+    document.getElementById("admin-dashboard").classList.add("hidden");
+    setTimeout(() => document.getElementById("admin-pin-input").focus(), 100);
+  }
+}
+
+function closeAdmin() {
+  document.getElementById("admin-modal").classList.add("hidden");
+}
+
+function unlockAdmin() {
+  const input = document.getElementById("admin-pin-input");
+  const err = document.getElementById("admin-pin-error");
+  const pin = (typeof ADMIN_PIN !== "undefined") ? ADMIN_PIN : "2026";
+  if (input.value === String(pin)) {
+    sessionStorage.setItem("wc2026_admin", "1");
+    document.getElementById("admin-pin-gate").classList.add("hidden");
+    document.getElementById("admin-dashboard").classList.remove("hidden");
+    renderAdminDashboard();
+  } else {
+    err.textContent = "❌ Code incorrect.";
+    input.value = "";
+  }
+}
+
+function fmtDate(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " " +
+    d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderAdminDashboard() {
+  const el = document.getElementById("admin-dashboard");
+  const players = Object.entries(balances).map(([id, v]) => ({ id, ...v }));
+  players.sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0));
+
+  const installedCount = players.filter((p) => p.installed).length;
+
+  // ── Joueurs ──
+  let playersHtml = `
+    <div class="admin-section-title">👥 Joueurs (${players.length}) · ${installedCount} ont installé l'app</div>
+    <div class="admin-table-wrap"><table class="admin-table">
+      <thead><tr><th>Prénom</th><th>Solde</th><th>Appareil</th><th>App ?</th><th>1ère visite</th><th>Vu</th></tr></thead>
+      <tbody>`;
+  players.forEach((p) => {
+    playersHtml += `<tr>
+      <td><strong>${p.name || "?"}</strong></td>
+      <td class="admin-bal">${(p.balance ?? 0).toFixed(2)} €</td>
+      <td>${p.platform || "—"}</td>
+      <td>${p.installed ? "✅" : "—"}</td>
+      <td class="admin-dim">${fmtDate(p.firstSeen)}</td>
+      <td class="admin-dim">${fmtDate(p.lastSeen)}</td>
+    </tr>`;
+  });
+  if (!players.length) playersHtml += `<tr><td colspan="6" class="admin-dim">Aucun joueur encore.</td></tr>`;
+  playersHtml += `</tbody></table></div>`;
+
+  // ── Présences par match ──
+  let attHtml = `<div class="admin-section-title">✅ Présences par match</div><div class="admin-att-list">`;
+  MATCHES.filter((m) => !m.ceremony).forEach((m) => {
+    const mv = votes[m.id] || {};
+    const yes = Object.values(mv).filter((v) => v.coming === true);
+    const no = Object.values(mv).filter((v) => v.coming === false);
+    attHtml += `<div class="admin-att-row">
+      <div class="admin-att-match">${m.home.name} <span class="admin-dim">vs</span> ${m.away.name}
+        <span class="admin-dim">· ${m.label}</span></div>
+      <div class="admin-att-names">
+        <span class="admin-yes">✅ ${yes.length}: ${yes.map((v) => v.name).join(", ") || "—"}</span>
+        ${no.length ? `<span class="admin-no">❌ ${no.length}: ${no.map((v) => v.name).join(", ")}</span>` : ""}
+      </div>
+    </div>`;
+  });
+  attHtml += `</div>`;
+
+  // ── Paris ──
+  let betsHtml = `<div class="admin-section-title">🎰 Paris du groupe</div><div class="admin-bets-list">`;
+  let totalBets = 0;
+  MATCHES.filter((m) => !m.ceremony).forEach((m) => {
+    const mb = bets[m.id] || {};
+    const arr = Object.values(mb);
+    if (!arr.length) return;
+    totalBets += arr.length;
+    betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}</div>`;
+    arr.forEach((b) => {
+      const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
+      betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name}</strong> · ${b.label} · ${b.stake.toFixed(0)}€ @ ${b.odds.toFixed(2)}</div>`;
+    });
+  });
+  if (!totalBets) betsHtml += `<div class="admin-dim">Aucun pari encore.</div>`;
+  betsHtml += `</div>`;
+
+  el.innerHTML = `<h2>📊 Tableau de bord</h2>${playersHtml}${attHtml}${betsHtml}
+    <button class="admin-refresh" onclick="renderAdminDashboard()">🔄 Rafraîchir</button>`;
+}
+
 // ── Bootstrap ──────────────────────────────────────────────
 (async () => {
   await registerSW();
   setupInstallBanner();
   await initFirebase();
+  trackInstall();
   setupNameModal();
 
   if (initUser()) {

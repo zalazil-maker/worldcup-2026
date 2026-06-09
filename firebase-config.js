@@ -25,3 +25,8 @@ const FIREBASE_CONFIG = {
 
 // Synchronisation temps réel activée
 const FIREBASE_ENABLED = true;
+
+// ── Code PIN de l'espace organisateur (à changer !) ──
+// Sert à ouvrir le tableau de bord admin (liste des joueurs, présences, paris).
+const ADMIN_PIN = "2026";
+
