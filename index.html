@@ -31,10 +31,10 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
-    getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction
+    getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction, deleteDoc
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  window._firebaseModules = { initializeApp, getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction };
+  window._firebaseModules = { initializeApp, getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction, deleteDoc };
   window._resolveFirebaseReady();
 </script>
 <script src="firebase-config.js"></script>
@@ -721,6 +721,11 @@ footer strong { color: var(--gold-light); }
 .admin-no { color: #f87171; }
 .admin-bet-match { font-weight: 700; font-size: .82rem; color: var(--gold-light); margin: 10px 0 4px; }
 .admin-bet-row { font-size: .8rem; padding: 2px 0; color: var(--text); }
+.admin-del {
+  background: none; border: 1px solid rgba(239,68,68,.3);
+  border-radius: 6px; padding: 3px 7px; cursor: pointer; font-size: .85rem;
+}
+.admin-del:hover { border-color: var(--red); background: rgba(239,68,68,.12); }
 .admin-refresh {
   margin-top: 20px; width: 100%; background: var(--dark3);
   border: 1px solid var(--card-border); color: var(--text);
@@ -2218,6 +2223,36 @@ function unlockAdmin() {
   }
 }
 
+async function deletePlayer(uid) {
+  const name = balances[uid]?.name || "?";
+  if (!db) { showToast("Mode démo : suppression non synchronisée."); return; }
+  const warnSelf = uid === currentUser?.id ? "\n\n⚠️ C'est TON compte actuel !" : "";
+  if (!confirm(`Supprimer le compte « ${name} » ?${warnSelf}\n\nSes votes et paris seront aussi effacés. Action irréversible.`)) return;
+
+  try {
+    const { doc, deleteDoc } = window._firebaseModules;
+    // Supprime le compte
+    await deleteDoc(doc(db, "users", uid));
+    // Supprime ses votes et paris dans chaque match
+    for (const m of MATCHES) {
+      if (m.ceremony) continue;
+      if (votes[m.id]?.[uid]) {
+        await deleteDoc(doc(db, "matches", m.id, "votes", uid));
+      }
+      const mb = bets[m.id] || {};
+      for (const [betId, b] of Object.entries(mb)) {
+        if (b.userId === uid) await deleteDoc(doc(db, "matches", m.id, "bets", betId));
+      }
+    }
+    delete balances[uid];
+    showToast(`🗑️ Compte « ${name} » supprimé.`);
+    renderAdminDashboard();
+  } catch (err) {
+    console.error(err);
+    showToast("Erreur lors de la suppression.");
+  }
+}
+
 function fmtDate(ts) {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -2236,19 +2271,22 @@ function renderAdminDashboard() {
   let playersHtml = `
     <div class="admin-section-title">👥 Joueurs (${players.length}) · ${installedCount} ont installé l'app</div>
     <div class="admin-table-wrap"><table class="admin-table">
-      <thead><tr><th>Prénom</th><th>Solde</th><th>Appareil</th><th>App ?</th><th>1ère visite</th><th>Vu</th></tr></thead>
+      <thead><tr><th>Prénom</th><th>Solde</th><th>Appareil</th><th>App ?</th><th>1ère visite</th><th>Vu</th><th></th></tr></thead>
       <tbody>`;
+  const isMe = (id) => id === currentUser?.id;
   players.forEach((p) => {
     playersHtml += `<tr>
-      <td><strong>${p.name || "?"}</strong></td>
+      <td><strong>${p.name || "?"}</strong>${isMe(p.id) ? ' <span class="admin-dim">(toi)</span>' : ""}</td>
       <td class="admin-bal">${(p.balance ?? 0).toFixed(2)} €</td>
       <td>${p.platform || "—"}</td>
       <td>${p.installed ? "✅" : "—"}</td>
       <td class="admin-dim">${fmtDate(p.firstSeen)}</td>
       <td class="admin-dim">${fmtDate(p.lastSeen)}</td>
+      <td><button class="admin-del" title="Supprimer ce compte"
+        onclick="deletePlayer('${p.id}')">🗑️</button></td>
     </tr>`;
   });
-  if (!players.length) playersHtml += `<tr><td colspan="6" class="admin-dim">Aucun joueur encore.</td></tr>`;
+  if (!players.length) playersHtml += `<tr><td colspan="7" class="admin-dim">Aucun joueur encore.</td></tr>`;
   playersHtml += `</tbody></table></div>`;
 
   // ── Présences par match ──
