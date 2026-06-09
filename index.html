@@ -493,6 +493,7 @@ footer strong { color: var(--gold-light); }
 }
 .bet-balance-line { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
 .bet-balance-line strong { color: #4ade80; }
+.odds-hint { color: var(--text-muted); font-size: .74rem; }
 
 /* Markets */
 .market { margin-bottom: 12px; }
@@ -757,19 +758,72 @@ const BRINGING_OPTIONS = [
   { id: "dessert",  label: "Dessert",     icon: "🎂" },
 ];
 
-// ── Cotes par match (1X2 / Total buts 2.5 / Première équipe à marquer) ──
-// Cotes fixes définies à l'avance — gain = mise × cote
-const ODDS = {
-  m02: { result: { home: 1.75, draw: 3.50, away: 4.40 }, totals: { over: 1.85, under: 1.90 }, firstScorer: { home: 1.65, away: 3.00, none: 9.0 } },
-  m03: { result: { home: 2.10, draw: 3.20, away: 3.30 }, totals: { over: 1.95, under: 1.80 }, firstScorer: { home: 1.95, away: 2.55, none: 9.5 } },
-  m04: { result: { home: 1.60, draw: 3.80, away: 5.00 }, totals: { over: 1.80, under: 1.95 }, firstScorer: { home: 1.55, away: 3.30, none: 9.0 } },
-  m05: { result: { home: 4.50, draw: 3.40, away: 1.72 }, totals: { over: 1.90, under: 1.85 }, firstScorer: { home: 3.10, away: 1.62, none: 9.0 } },
-  m06: { result: { home: 1.50, draw: 4.00, away: 5.50 }, totals: { over: 1.75, under: 2.00 }, firstScorer: { home: 1.50, away: 3.60, none: 9.5 } },
-  m07: { result: { home: 2.90, draw: 3.10, away: 2.30 }, totals: { over: 2.00, under: 1.75 }, firstScorer: { home: 2.50, away: 2.00, none: 10.0 } },
-  m08: { result: { home: 1.45, draw: 4.20, away: 6.00 }, totals: { over: 1.78, under: 1.98 }, firstScorer: { home: 1.48, away: 3.80, none: 9.0 } },
-  m09: { result: { home: 1.55, draw: 3.90, away: 5.20 }, totals: { over: 1.82, under: 1.92 }, firstScorer: { home: 1.52, away: 3.40, none: 9.5 } },
-  m10: { result: { home: 1.65, draw: 3.70, away: 4.80 }, totals: { over: 1.80, under: 1.95 }, firstScorer: { home: 1.58, away: 3.20, none: 9.0 } },
+// ── Niveau des équipes (type classement FIFA / Elo) ────────
+// Plus le nombre est élevé, plus l'équipe est forte. Sert à calculer
+// automatiquement les cotes à partir de la probabilité de victoire.
+const TEAM_RATINGS = {
+  "France": 2050, "Brésil": 2020, "Angleterre": 1985, "Portugal": 1970,
+  "Croatie": 1855, "Suisse": 1830, "Maroc": 1820, "Sénégal": 1800,
+  "Mexique": 1755, "USA": 1750, "Canada": 1705, "Écosse": 1700,
+  "Paraguay": 1680, "Bosnie": 1660, "Afrique du Sud": 1640, "RD Congo": 1630,
+  "Qatar": 1600, "Haïti": 1500,
 };
+const DEFAULT_RATING = 1700;
+const MARGIN = 1.06;       // marge "bookmaker" (~6%) sur les cotes
+const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+const toOdds = (p) => Math.max(1.05, +(((1 / Math.max(p, 0.001)) / MARGIN)).toFixed(2));
+
+// Probabilités de base à partir du niveau des deux équipes
+function baseProbs(m) {
+  const ra = TEAM_RATINGS[m.home.name] ?? DEFAULT_RATING;
+  const rb = TEAM_RATINGS[m.away.name] ?? DEFAULT_RATING;
+  const diff = ra - rb;
+  const W = 1 / (1 + Math.pow(10, -diff / 400));          // part de victoire dom. (hors nul)
+  const pDraw = 0.28 * Math.exp(-(diff * diff) / (2 * 200 * 200));
+  const result = { home: (1 - pDraw) * W, draw: pDraw, away: (1 - pDraw) * (1 - W) };
+
+  const avg = (ra + rb) / 2;
+  const expTotal = 2.5 + (avg - 1750) / 250 + Math.abs(diff) / 450;
+  const pOver = clamp(0.5 + (expTotal - 2.5) * 0.18, 0.35, 0.66);
+  const totals = { over: pOver, under: 1 - pOver };
+
+  const pNone = clamp(0.05 + (1800 - avg) / 4000, 0.03, 0.12);
+  const firstScorer = { home: (1 - pNone) * W, away: (1 - pNone) * (1 - W), none: pNone };
+
+  return { result, totals, firstScorer };
+}
+
+// Mélange les probas de base avec les mises du groupe (cotes dynamiques)
+function blendWithBets(probs, stakeMap) {
+  const T = Object.values(stakeMap).reduce((a, b) => a + b, 0);
+  if (T <= 0) return probs;
+  const w = Math.min(0.45, T / (T + 150)); // plus il y a de mises, plus l'effet est fort
+  const out = {};
+  for (const k in probs) out[k] = (1 - w) * probs[k] + w * ((stakeMap[k] || 0) / T);
+  return out;
+}
+
+// Cotes finales (force des équipes + dynamique selon les paris en cours)
+function computeOdds(matchId) {
+  const m = MATCHES.find((x) => x.id === matchId);
+  const base = baseProbs(m);
+  const matchBets = bets[matchId] || {};
+
+  // Cumul des mises par marché/sélection
+  const stakes = { result: {}, totals: {}, firstScorer: {} };
+  Object.values(matchBets).forEach((b) => {
+    if (!stakes[b.market]) return;
+    stakes[b.market][b.selection] = (stakes[b.market][b.selection] || 0) + b.stake;
+  });
+
+  const odds = {};
+  ["result", "totals", "firstScorer"].forEach((mk) => {
+    const blended = blendWithBets(base[mk], stakes[mk]);
+    odds[mk] = {};
+    for (const k in blended) odds[mk][k] = toOdds(blended[k]);
+  });
+  return odds;
+}
 
 const START_BALANCE = 100; // € fictifs au départ
 
@@ -1186,7 +1240,7 @@ function renderMatchBetting(matchId) {
   const matchBets = bets[matchId] || {};
   const myVote = (votes[matchId] || {})[currentUser?.id];
   const isPresent = myVote?.coming === true;
-  const odds = ODDS[matchId];
+  const odds = computeOdds(matchId);
 
   let html = `<div class="betting-title">🎰 Paris ${result?.settled ? "— Terminé" : ""}</div>`;
 
@@ -1220,7 +1274,7 @@ function renderMatchBetting(matchId) {
       html += `<div class="bet-locked">🎟️ Vote « Je viens » pour pouvoir parier sur ce match.</div>`;
     } else {
       const draft = betDraft[matchId];
-      html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong></div>`;
+      html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">· cotes selon le niveau des équipes, ajustées par les paris du groupe 📈</span></div>`;
       // Marchés
       ["result", "totals", "firstScorer"].forEach((market) => {
         html += `<div class="market"><div class="market-label">${MARKET_LABELS[market]}</div><div class="market-options">`;
