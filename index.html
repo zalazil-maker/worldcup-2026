@@ -351,6 +351,22 @@ main {
 }
 .bringing-chip .chip-icon { font-size: 1rem; }
 
+/* Coordination box (what others bring) */
+.coord-box {
+  background: rgba(59,130,246,.08);
+  border: 1px solid rgba(59,130,246,.3);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;
+}
+.coord-title {
+  font-size: .78rem; font-weight: 700; color: #93c5fd;
+  margin-bottom: 8px;
+}
+.coord-row {
+  font-size: .85rem; color: var(--text); padding: 3px 0;
+}
+.coord-name { font-weight: 700; color: #bfdbfe; }
+.coord-row strong { color: #dbeafe; }
+
 .bringing-other {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
 }
@@ -1170,8 +1186,30 @@ function renderMatchVotes(matchId) {
           data-id="${opt.id}" onclick="toggleBringing('${matchId}','${opt.id}')">
           <span class="chip-icon">${opt.icon}</span>${opt.label}
         </button>`).join("");
-      bringFormEl.innerHTML = `
-        <div class="bringing-label">Qu'est-ce que tu ramènes ?</div>
+
+      // Ce que LES AUTRES ramènent déjà (pour se coordonner)
+      const others = Object.entries(matchVotes)
+        .filter(([uid, v]) => uid !== currentUser?.id && v.coming && (v.bringing?.length || v.other));
+      let othersHtml = "";
+      if (others.length) {
+        const rows = others.map(([, v]) => {
+          const items = [
+            ...(v.bringing || []).map((bid) => {
+              const o = BRINGING_OPTIONS.find((x) => x.id === bid);
+              return o ? `${o.icon} ${o.label}` : bid;
+            }),
+            ...(v.other ? [`✏️ ${v.other}`] : []),
+          ].join(", ");
+          return `<div class="coord-row"><span class="coord-name">${v.name}</span> ramène <strong>${items}</strong></div>`;
+        }).join("");
+        othersHtml = `<div class="coord-box">
+          <div class="coord-title">👀 Déjà prévu par le groupe — évite les doublons !</div>
+          ${rows}
+        </div>`;
+      }
+
+      bringFormEl.innerHTML = othersHtml + `
+        <div class="bringing-label">Qu'est-ce que TU ramènes ?</div>
         <div class="bringing-options" id="chips-${matchId}">${chipsHtml}</div>
         <div class="bringing-other">
           <input type="text" id="other-${matchId}" placeholder="Autre chose..." maxlength="60"
