@@ -1,18 +1,45 @@
 {
   "name": "Coupe du Monde 2026 — Chez nous !",
   "short_name": "WC2026",
-  "description": "Votez pour les matchs et dites ce que vous ramenez !",
+  "description": "Votez pour les matchs, pariez, et dites ce que vous ramenez !",
   "start_url": "/worldcup-2026/",
   "scope": "/worldcup-2026/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#0a0a0a",
   "theme_color": "#c9a227",
+  "lang": "fr",
+  "categories": ["sports", "entertainment"],
   "icons": [
     {
-      "src": "https://em-content.zobj.net/source/apple/391/trophy_1f3c6.png",
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

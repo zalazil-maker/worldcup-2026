@@ -2,10 +2,25 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Coupe du Monde 2026 — Chez nous !</title>
-<meta name="theme-color" content="#0a0a0a" />
+
+<!-- PWA / Android -->
+<meta name="theme-color" content="#c9a227" />
 <link rel="manifest" href="manifest.json" />
+
+<!-- PWA / iOS Safari -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="WC2026" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
+<link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
+<link rel="apple-touch-startup-image" href="icon-512.png" />
+
+<!-- Icône standard -->
+<link rel="icon" type="image/svg+xml" href="icon.svg" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
 
 <!-- Promise résolue quand le SDK Firebase est chargé (les modules sont différés) -->
 <script>
@@ -63,6 +78,32 @@ body::before {
     radial-gradient(ellipse at 80% 100%, rgba(34,197,94,.05) 0%, transparent 50%);
   pointer-events: none; z-index: 0;
 }
+
+/* ── Install banner ───────────────────────────────────────── */
+.install-banner {
+  background: linear-gradient(135deg, #1a1500, #2a2000);
+  border-bottom: 2px solid var(--gold);
+  padding: 10px 16px;
+  position: relative; z-index: 100;
+}
+.install-banner.hidden { display: none; }
+.install-content { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.install-content.hidden { display: none; }
+.install-icon { font-size: 1.6rem; flex-shrink: 0; }
+.install-text { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 2px; }
+.install-text strong { color: var(--gold-light); font-size: .9rem; }
+.install-text span { color: var(--text-muted); font-size: .8rem; }
+.install-btn {
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  color: var(--dark); border: none; border-radius: 8px;
+  padding: 8px 18px; font-weight: 800; font-size: .88rem; cursor: pointer;
+  white-space: nowrap; flex-shrink: 0;
+}
+.install-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 1.1rem; cursor: pointer; padding: 4px 6px; flex-shrink: 0;
+}
+.install-close:hover { color: var(--text); }
 
 /* ── Setup banner ─────────────────────────────────────────── */
 #setup-banner {
@@ -621,6 +662,27 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
+
+<!-- Install banner -->
+<div id="install-banner" class="install-banner hidden">
+  <div id="install-android" class="install-content hidden">
+    <span class="install-icon">📲</span>
+    <div class="install-text">
+      <strong>Installer l'app</strong>
+      <span>Ajoute WC2026 à ton écran d'accueil pour un accès rapide !</span>
+    </div>
+    <button id="install-android-btn" class="install-btn">Installer</button>
+    <button class="install-close" onclick="closeInstallBanner()">✕</button>
+  </div>
+  <div id="install-ios" class="install-content hidden">
+    <span class="install-icon">📲</span>
+    <div class="install-text">
+      <strong>Installer sur iPhone / iPad</strong>
+      <span>Appuie sur <strong>⎙ Partager</strong> puis <strong>« Sur l'écran d'accueil »</strong></span>
+    </div>
+    <button class="install-close" onclick="closeInstallBanner()">✕</button>
+  </div>
+</div>
 
 <!-- Setup warning if Firebase not configured -->
 <div id="setup-banner">
@@ -1931,6 +1993,63 @@ function showWelcome(name) {
   }
 }
 
+// ── Install banner ─────────────────────────────────────────
+let _deferredInstallPrompt = null;
+
+function setupInstallBanner() {
+  const dismissed = localStorage.getItem("wc2026_install_dismissed");
+  if (dismissed) return;
+
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+  if (isStandalone) return; // already installed
+
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  const isAndroid = /android/i.test(navigator.userAgent);
+
+  if (isIOS) {
+    // iOS : on montre les instructions manuelles (Safari ne supporte pas beforeinstallprompt)
+    showInstallBanner("ios");
+    return;
+  }
+
+  if (isAndroid || true) {
+    // Android / Chrome Desktop : on attend le beforeinstallprompt
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      _deferredInstallPrompt = e;
+      showInstallBanner("android");
+    });
+  }
+}
+
+function showInstallBanner(platform) {
+  const banner = document.getElementById("install-banner");
+  const androidEl = document.getElementById("install-android");
+  const iosEl = document.getElementById("install-ios");
+  banner.classList.remove("hidden");
+  if (platform === "android") {
+    androidEl.classList.remove("hidden");
+    document.getElementById("install-android-btn").onclick = async () => {
+      if (!_deferredInstallPrompt) return;
+      _deferredInstallPrompt.prompt();
+      const { outcome } = await _deferredInstallPrompt.userChoice;
+      if (outcome === "accepted") {
+        localStorage.setItem("wc2026_install_dismissed", "1");
+        banner.classList.add("hidden");
+      }
+      _deferredInstallPrompt = null;
+    };
+  } else {
+    iosEl.classList.remove("hidden");
+  }
+}
+
+function closeInstallBanner() {
+  localStorage.setItem("wc2026_install_dismissed", "1");
+  document.getElementById("install-banner").classList.add("hidden");
+}
+
 // ── Service worker registration ────────────────────────────
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
@@ -1944,6 +2063,7 @@ async function registerSW() {
 // ── Bootstrap ──────────────────────────────────────────────
 (async () => {
   await registerSW();
+  setupInstallBanner();
   await initFirebase();
   setupNameModal();
 

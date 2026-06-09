@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- fond carré arrondi doré -->
+  <rect width="512" height="512" rx="112" fill="#0a0a0a"/>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#2a1f00"/>
+      <stop offset="100%" stop-color="#0a0a0a"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f0c040"/>
+      <stop offset="50%" stop-color="#c9a227"/>
+      <stop offset="100%" stop-color="#8a6a10"/>
+    </linearGradient>
+  </defs>
+
+  <!-- coupe / trophée -->
+  <!-- corps de la coupe -->
+  <path d="M196 120 h120 l-20 110 c0 30-20 55-40 65 v30 h40 v30 H216 v-30 h40 v-30 c-20-10-40-35-40-65 z"
+        fill="url(#gold)" stroke="#f0c040" stroke-width="3"/>
+  <!-- anses gauche -->
+  <path d="M196 140 Q148 140 148 185 Q148 230 196 230"
+        fill="none" stroke="url(#gold)" stroke-width="14" stroke-linecap="round"/>
+  <!-- anses droite -->
+  <path d="M316 140 Q364 140 364 185 Q364 230 316 230"
+        fill="none" stroke="url(#gold)" stroke-width="14" stroke-linecap="round"/>
+  <!-- base -->
+  <rect x="200" y="345" width="112" height="18" rx="6" fill="url(#gold)"/>
+  <rect x="180" y="363" width="152" height="22" rx="8" fill="url(#gold)"/>
+
+  <!-- étoile sur la coupe -->
+  <polygon points="256,145 263,165 284,165 267,177 274,197 256,185 238,197 245,177 228,165 249,165"
+           fill="#fff8dc" opacity="0.9"/>
+
+  <!-- ballon de foot en bas à droite -->
+  <circle cx="370" cy="370" r="62" fill="#f5f5f5" stroke="#ccc" stroke-width="2"/>
+  <!-- pentagones du ballon -->
+  <path d="M370 318 L390 330 L390 355 L370 367 L350 355 L350 330 Z" fill="#222"/>
+  <path d="M370 367 L390 355 L415 368 L418 393 L395 405 L370 393 Z" fill="#222"/>
+  <path d="M370 367 L350 355 L325 368 L322 393 L345 405 L370 393 Z" fill="#222"/>
+  <path d="M415 368 L432 348 L421 325 L398 325 L390 330 L390 355 Z" fill="#222" opacity=".5"/>
+  <path d="M325 368 L308 348 L319 325 L342 325 L350 330 L350 355 Z" fill="#222" opacity=".5"/>
+</svg>

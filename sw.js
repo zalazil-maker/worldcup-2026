@@ -16,8 +16,8 @@ self.addEventListener("message", (e) => {
       self.registration.showNotification(title, {
         body,
         tag,
-        icon: "https://em-content.zobj.net/source/apple/391/trophy_1f3c6.png",
-        badge: "https://em-content.zobj.net/source/apple/391/trophy_1f3c6.png",
+        icon: "/worldcup-2026/icon-192.png",
+        badge: "/worldcup-2026/icon-192.png",
         vibrate: [200, 100, 200],
         requireInteraction: true,
         data: { url: self.registration.scope },
