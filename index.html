@@ -589,45 +589,11 @@ footer strong { color: var(--gold-light); }
   border-radius: 16px; padding: 4px 10px; font-size: .76rem; color: var(--text);
 }
 
-/* Settle (organizer) */
-.settle-btn {
-  margin-top: 14px; width: 100%;
-  background: transparent; border: 1px dashed var(--card-border);
-  color: var(--text-muted); border-radius: 8px; padding: 9px;
-  font-size: .82rem; cursor: pointer; transition: all .2s;
+/* Bet info row */
+.bet-info-row {
+  margin-top: 10px; font-size: .78rem; color: var(--text-muted);
+  text-align: center; padding: 6px; border-top: 1px solid var(--card-border);
 }
-.settle-btn:hover { border-color: var(--gold); color: var(--gold-light); }
-.settle-form {
-  margin-top: 10px; background: var(--dark3);
-  border: 1px solid var(--card-border); border-radius: 10px; padding: 14px;
-}
-.settle-grid { display: flex; align-items: flex-end; justify-content: center; gap: 12px; margin-bottom: 12px; }
-.settle-grid label {
-  display: flex; flex-direction: column; gap: 4px; font-size: .8rem;
-  color: var(--text-muted); text-align: center; font-weight: 600;
-}
-.settle-grid input {
-  width: 64px; background: var(--dark); border: 1.5px solid var(--card-border);
-  border-radius: 8px; padding: 8px; color: var(--text); font-size: 1.1rem;
-  text-align: center; outline: none;
-}
-.settle-grid input:focus { border-color: var(--gold); }
-.settle-dash { font-size: 1.4rem; padding-bottom: 6px; color: var(--text-muted); }
-.settle-first {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: .84rem; margin-bottom: 12px; color: var(--text-muted);
-}
-.settle-first select {
-  background: var(--dark); border: 1.5px solid var(--card-border);
-  border-radius: 8px; padding: 7px 10px; color: var(--text); font-size: .85rem; outline: none;
-}
-.settle-confirm {
-  width: 100%; background: linear-gradient(135deg, var(--gold), var(--gold-light));
-  color: var(--dark); border: none; border-radius: 8px;
-  padding: 10px; font-weight: 800; font-size: .88rem; cursor: pointer;
-}
-.settle-warn { font-size: .72rem; color: var(--text-muted); margin-top: 8px; text-align: center; }
-.settle-prefill { font-size: .78rem; color: var(--green); margin-bottom: 10px; text-align: center; }
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {
@@ -929,9 +895,46 @@ function updateIdentityBar() {
 }
 
 function changeName() {
-  document.getElementById("name-modal").classList.remove("hidden");
-  document.getElementById("name-input").value = currentUser?.name || "";
-  document.getElementById("name-input").focus();
+  const modal = document.getElementById("name-modal");
+  const input = document.getElementById("name-input");
+  const btn = document.getElementById("name-confirm");
+  input.value = currentUser?.name || "";
+  clearModalError();
+  btn.disabled = false;
+  btn.textContent = "C'est parti ! 🎉";
+  modal.classList.remove("hidden");
+
+  // Override confirm for rename (same uid — uniqueness check still applies)
+  btn.onclick = async () => {
+    const name = input.value.trim();
+    if (!name || name.length < 2) { setModalError("Prénom trop court."); return; }
+    btn.disabled = true; btn.textContent = "Vérification…";
+    clearModalError();
+
+    if (db) {
+      try {
+        const { collection, getDocs } = window._firebaseModules;
+        const snap = await getDocs(collection(db, "users"));
+        const myUid = userId();
+        const takenBy = snap.docs.find((d) =>
+          d.id !== myUid &&
+          (d.data().name || "").toLowerCase() === name.toLowerCase()
+        );
+        if (takenBy) {
+          setModalError(`❌ "${name}" est déjà pris — essaie un autre surnom.`);
+          btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
+          return;
+        }
+      } catch (_) {}
+    }
+
+    localStorage.setItem("wc2026_name", name);
+    currentUser = { id: userId(), name };
+    modal.classList.add("hidden");
+    updateIdentityBar();
+    await ensureBalance();
+  };
+  input.focus();
 }
 
 // ── Firebase init ──────────────────────────────────────────
@@ -1369,10 +1372,9 @@ function renderMatchBetting(matchId) {
     html += `</div>`;
   }
 
-  // Bouton organisateur : saisir le résultat
-  if (!result?.settled) {
-    html += `<button class="settle-btn" onclick="openSettleForm('${matchId}')">🔧 Organisateur : saisir le résultat</button>
-      <div id="settle-form-${matchId}" class="settle-form" style="display:none"></div>`;
+  // Le règlement est automatique (live score FT → autoSettleFromLive)
+  if (!result?.settled && !isPast(m)) {
+    html += `<div class="bet-info-row">⏳ Les paris sont réglés automatiquement à la fin du match.</div>`;
   }
 
   el.innerHTML = html;
@@ -1621,6 +1623,8 @@ function renderLiveScore(matchId) {
   } else if (DONE_STATUSES.includes(st)) {
     el.className = "live-score done";
     el.innerHTML = `🏁 Score final ${score}`;
+    // Auto-règlement : le match est terminé, on règle les paris si ce n'est pas fait
+    autoSettleFromLive(matchId);
   } else {
     el.innerHTML = ""; el.className = "live-score";
   }
@@ -1629,6 +1633,74 @@ function renderLiveScore(matchId) {
 function startLivePolling() {
   refreshLiveScores(false);                               // tout au chargement
   setInterval(() => refreshLiveScores(true), 5 * 60 * 1000); // puis toutes les 5 min (jour J)
+}
+
+// ── Auto-règlement dès que l'API dit FT ───────────────────
+const _autoSettling = new Set(); // évite les doubles appels
+async function autoSettleFromLive(matchId) {
+  if (results[matchId]?.settled) return;
+  if (_autoSettling.has(matchId)) return;
+  _autoSettling.add(matchId);
+
+  const ls = liveScores[matchId];
+  if (!ls || ls.home == null || ls.away == null) { _autoSettling.delete(matchId); return; }
+
+  const hs = parseInt(ls.home, 10);
+  const as = parseInt(ls.away, 10);
+  const total = hs + as;
+
+  // firstScorer ne peut pas être déduit du score final — on règle résultat + totals,
+  // et pour firstScorer : si 0-0 → none, sinon → équipe qui mène (heuristique simple)
+  let firstScorer = "none";
+  if (total > 0) firstScorer = hs >= as ? "home" : "away";
+
+  const res = {
+    settled: true, homeScore: hs, awayScore: as, firstScorer,
+    settledBy: "auto", settledAt: Date.now(),
+  };
+
+  const matchBets = bets[matchId] || {};
+
+  if (db) {
+    try {
+      const { doc, setDoc, runTransaction } = window._firebaseModules;
+      for (const [betId, bet] of Object.entries(matchBets)) {
+        if (bet.status !== "open") continue;
+        const won = betWins(bet, res);
+        if (won) {
+          await runTransaction(db, async (tx) => {
+            const uref = doc(db, "users", bet.userId);
+            const usnap = await tx.get(uref);
+            const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+            tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
+          });
+        }
+        await setDoc(doc(db, "matches", matchId, "bets", betId), { status: won ? "won" : "lost" }, { merge: true });
+      }
+      await setDoc(doc(db, "results", matchId), res);
+    } catch (err) {
+      console.error("Auto-settle error:", err);
+      _autoSettling.delete(matchId); return;
+    }
+  } else {
+    Object.entries(matchBets).forEach(([, bet]) => {
+      if (bet.status !== "open") return;
+      const won = betWins(bet, res);
+      bet.status = won ? "won" : "lost";
+      if (won) {
+        const b = balances[bet.userId] || { name: bet.name, balance: 0 };
+        b.balance = +(b.balance + bet.potentialWin).toFixed(2);
+        balances[bet.userId] = b;
+      }
+    });
+    results[matchId] = res;
+    updateBalanceDisplay();
+  }
+
+  const m = MATCHES.find((x) => x.id === matchId);
+  showToast(`🏁 Match terminé : ${m?.home.name} ${hs}-${as} ${m?.away.name} — paris réglés automatiquement !`);
+  renderMatchBetting(matchId);
+  renderLeaderboard();
 }
 
 // ── Notifications ──────────────────────────────────────────
@@ -1729,23 +1801,96 @@ function showToast(msg) {
 }
 
 // ── Name modal ─────────────────────────────────────────────
+function setModalError(msg) {
+  let el = document.getElementById("name-error");
+  if (!el) {
+    el = document.createElement("p");
+    el.id = "name-error";
+    el.style.cssText = "color:#f87171;font-size:.82rem;margin-top:-6px;margin-bottom:8px;";
+    const btn = document.getElementById("name-confirm");
+    btn.parentNode.insertBefore(el, btn);
+  }
+  el.textContent = msg;
+}
+function clearModalError() {
+  const el = document.getElementById("name-error");
+  if (el) el.textContent = "";
+}
+
 function setupNameModal() {
   const btn = document.getElementById("name-confirm");
   const input = document.getElementById("name-input");
 
-  function confirm() {
+  // If this device already registered once, block a second account silently
+  // (same uid = same person, they can only change their display name)
+  const existingName = localStorage.getItem("wc2026_name");
+  if (existingName) return; // initUser() will handle it
+
+  async function confirm() {
     const name = input.value.trim();
     if (!name) { input.focus(); return; }
+    if (name.length < 2) { setModalError("Prénom trop court."); return; }
+
+    btn.disabled = true;
+    btn.textContent = "Vérification…";
+    clearModalError();
+
+    // ── Check name uniqueness in Firebase ──────────────────
+    if (db) {
+      try {
+        const { collection, getDocs } = window._firebaseModules;
+        const snap = await getDocs(collection(db, "users"));
+        const myUid = userId();
+        const takenBy = snap.docs.find((d) =>
+          d.id !== myUid &&
+          (d.data().name || "").toLowerCase() === name.toLowerCase()
+        );
+        if (takenBy) {
+          setModalError(`❌ "${name}" est déjà pris — essaie "${name}2" ou un surnom.`);
+          btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
+          return;
+        }
+      } catch (_) { /* hors-ligne → on laisse passer */ }
+    }
+
+    // ── Enregistrement ─────────────────────────────────────
     localStorage.setItem("wc2026_name", name);
     currentUser = { id: userId(), name };
     document.getElementById("name-modal").classList.add("hidden");
     updateIdentityBar();
     renderMatches();
     autoEnableNotifications();
+
+    // ── Notification de bienvenue ──────────────────────────
+    showWelcome(name);
   }
 
   btn.addEventListener("click", confirm);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); });
+}
+
+function showWelcome(name) {
+  // Toast long + notification système si permission accordée
+  const msg = `🎉 Bienvenue ${name} ! Tu as 100 € fictifs à parier. Vote « Je viens » sur un match pour débloquer les paris. Les paris ferment quand le match se termine.`;
+  const t = document.createElement("div");
+  t.style.cssText = `
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:#1e1e1e;border:2px solid rgba(201,162,39,.6);
+    color:#f0f0f0;padding:16px 20px;border-radius:12px;
+    font-size:.88rem;z-index:9998;box-shadow:0 4px 30px rgba(0,0,0,.6);
+    max-width:min(92vw,420px);text-align:center;line-height:1.5;`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 9000);
+
+  if (Notification.permission === "granted") {
+    setTimeout(() => {
+      new Notification("🏆 Bienvenue dans le groupe WC2026 !", {
+        body: `Tu as 100 € fictifs. Vote « Je viens » sur un match pour commencer à parier !`,
+        icon: "https://em-content.zobj.net/source/apple/391/trophy_1f3c6.png",
+      });
+    }, 1500);
+  }
 }
 
 // ── Service worker registration ────────────────────────────
