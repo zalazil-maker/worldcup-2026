@@ -230,7 +230,13 @@ main {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   flex: 1; min-width: 100px;
 }
-.team-flag { font-size: 2.8rem; line-height: 1; }
+.team-flag {
+  width: 72px; height: 48px;
+  object-fit: cover; border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  border: 1px solid rgba(255,255,255,.12);
+  background: var(--dark3);
+}
 .team-name {
   font-size: .82rem; font-weight: 700;
   text-align: center; text-transform: uppercase;
@@ -439,7 +445,7 @@ footer strong { color: var(--gold-light); }
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {
   .match-teams { padding: 16px 12px 10px; }
-  .team-flag { font-size: 2.2rem; }
+  .team-flag { width: 60px; height: 40px; }
   .team-name { font-size: .75rem; }
   .vote-btn { padding: 7px 14px; font-size: .82rem; }
 }
@@ -511,64 +517,64 @@ const MATCHES = [
     id: "m02",
     date: "2026-06-11", time: "21:00",
     label: "Jeudi 11 Juin 2026",
-    home: { name: "Mexique", flag: "🇲🇽" },
-    away: { name: "Afrique du Sud", flag: "🇿🇦" },
+    home: { name: "Mexique", flag: "mx" },
+    away: { name: "Afrique du Sud", flag: "za" },
   },
   {
     id: "m03",
     date: "2026-06-12", time: "21:00",
     label: "Vendredi 12 Juin 2026",
-    home: { name: "Canada", flag: "🇨🇦" },
-    away: { name: "Bosnie", flag: "🇧🇦" },
+    home: { name: "Canada", flag: "ca" },
+    away: { name: "Bosnie", flag: "ba" },
   },
   {
     id: "m04",
     date: "2026-06-13", time: "03:00",
     label: "Samedi 13 Juin 2026",
-    home: { name: "USA", flag: "🇺🇸" },
-    away: { name: "Paraguay", flag: "🇵🇾" },
+    home: { name: "USA", flag: "us" },
+    away: { name: "Paraguay", flag: "py" },
   },
   {
     id: "m05",
     date: "2026-06-13", time: "21:00",
     label: "Samedi 13 Juin 2026",
-    home: { name: "Qatar", flag: "🇶🇦" },
-    away: { name: "Suisse", flag: "🇨🇭" },
+    home: { name: "Qatar", flag: "qa" },
+    away: { name: "Suisse", flag: "ch" },
   },
   {
     id: "m06",
     date: "2026-06-14", time: "00:00",
     label: "Dimanche 14 Juin 2026",
-    home: { name: "Brésil", flag: "🇧🇷" },
-    away: { name: "Maroc", flag: "🇲🇦" },
+    home: { name: "Brésil", flag: "br" },
+    away: { name: "Maroc", flag: "ma" },
   },
   {
     id: "m07",
     date: "2026-06-14", time: "03:00",
     label: "Dimanche 14 Juin 2026",
-    home: { name: "Haïti", flag: "🇭🇹" },
-    away: { name: "Écosse", flag: "🏴󠁧󠁢󠁳󠁣󠁴󠁿" },
+    home: { name: "Haïti", flag: "ht" },
+    away: { name: "Écosse", flag: "gb-sct" },
   },
   {
     id: "m08",
     date: "2026-06-16", time: "21:00",
     label: "Mardi 16 Juin 2026",
-    home: { name: "France", flag: "🇫🇷" },
-    away: { name: "Sénégal", flag: "🇸🇳" },
+    home: { name: "France", flag: "fr" },
+    away: { name: "Sénégal", flag: "sn" },
   },
   {
     id: "m09",
     date: "2026-06-17", time: "19:00",
     label: "Mercredi 17 Juin 2026",
-    home: { name: "Portugal", flag: "🇵🇹" },
-    away: { name: "RD Congo", flag: "🇨🇩" },
+    home: { name: "Portugal", flag: "pt" },
+    away: { name: "RD Congo", flag: "cd" },
   },
   {
     id: "m10",
     date: "2026-06-17", time: "22:00",
     label: "Mercredi 17 Juin 2026",
-    home: { name: "Angleterre", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
-    away: { name: "Croatie", flag: "🇭🇷" },
+    home: { name: "Angleterre", flag: "gb-eng" },
+    away: { name: "Croatie", flag: "hr" },
   },
 ];
 
@@ -734,12 +740,14 @@ function buildMatchCard(m) {
     teamsHtml = `
       <div class="match-teams">
         <div class="team">
-          <span class="team-flag">${m.home.flag}</span>
+          <img class="team-flag" src="https://flagcdn.com/w160/${m.home.flag}.png"
+            srcset="https://flagcdn.com/w320/${m.home.flag}.png 2x" alt="${m.home.name}" loading="lazy" />
           <span class="team-name">${m.home.name}</span>
         </div>
         <div class="vs-badge">VS</div>
         <div class="team">
-          <span class="team-flag">${m.away.flag}</span>
+          <img class="team-flag" src="https://flagcdn.com/w160/${m.away.flag}.png"
+            srcset="https://flagcdn.com/w320/${m.away.flag}.png 2x" alt="${m.away.name}" loading="lazy" />
           <span class="team-name">${m.away.name}</span>
         </div>
       </div>`;
