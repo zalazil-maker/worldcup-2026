@@ -16,10 +16,10 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
-    getFirestore, collection, doc, setDoc, onSnapshot, getDocs
+    getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  window._firebaseModules = { initializeApp, getFirestore, collection, doc, setDoc, onSnapshot, getDocs };
+  window._firebaseModules = { initializeApp, getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction };
   window._resolveFirebaseReady();
 </script>
 <script src="firebase-config.js"></script>
@@ -442,6 +442,169 @@ footer {
 }
 footer strong { color: var(--gold-light); }
 
+/* ── Identity right / balance ─────────────────────────────── */
+.identity-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.balance-pill {
+  display: flex; align-items: center; gap: 5px;
+  background: linear-gradient(135deg, rgba(34,197,94,.15), rgba(34,197,94,.08));
+  border: 1px solid rgba(34,197,94,.35);
+  color: #4ade80; border-radius: 8px;
+  padding: 6px 12px; font-weight: 800; font-size: .85rem;
+  white-space: nowrap;
+}
+
+/* ── Leaderboard ──────────────────────────────────────────── */
+#leaderboard {
+  background: var(--card); border: 1px solid var(--card-border);
+  border-radius: var(--radius); overflow: hidden; margin-bottom: 8px;
+}
+#leaderboard:empty { display: none; }
+.lb-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 16px; border-bottom: 1px solid var(--card-border);
+  font-size: .9rem;
+}
+.lb-row:last-child { border-bottom: none; }
+.lb-row.me { background: rgba(201,162,39,.1); }
+.lb-rank { width: 28px; font-weight: 700; }
+.lb-name { flex: 1; font-weight: 600; }
+.lb-row.me .lb-name::after { content: " (toi)"; color: var(--gold-light); font-weight: 400; font-size: .8rem; }
+.lb-balance { font-weight: 800; color: #4ade80; }
+
+/* ── Betting section ──────────────────────────────────────── */
+.betting-section {
+  border-top: 1px solid var(--card-border);
+  padding: 14px 16px;
+  background: rgba(34,197,94,.02);
+}
+.betting-title {
+  font-size: .82rem; color: var(--gold-light); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;
+}
+.result-banner {
+  background: rgba(201,162,39,.12); border: 1px solid rgba(201,162,39,.3);
+  border-radius: 8px; padding: 8px 12px; font-size: .88rem;
+  margin-bottom: 12px; color: var(--gold-light);
+}
+.bet-locked {
+  background: var(--dark3); border: 1px dashed var(--card-border);
+  border-radius: 8px; padding: 12px; font-size: .85rem;
+  color: var(--text-muted); text-align: center;
+}
+.bet-balance-line { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
+.bet-balance-line strong { color: #4ade80; }
+
+/* Markets */
+.market { margin-bottom: 12px; }
+.market-label {
+  font-size: .78rem; color: var(--text-muted); font-weight: 600;
+  margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em;
+}
+.market-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.odd-btn {
+  flex: 1; min-width: 80px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: var(--dark3); border: 1.5px solid var(--card-border);
+  border-radius: 10px; padding: 9px 8px; cursor: pointer;
+  transition: all .18s; color: var(--text);
+}
+.odd-btn:hover { border-color: rgba(201,162,39,.5); }
+.odd-btn.active {
+  border-color: var(--gold); background: rgba(201,162,39,.18);
+  box-shadow: 0 0 12px rgba(201,162,39,.2);
+}
+.odd-sel { font-size: .78rem; font-weight: 600; color: var(--text-muted); text-align: center; }
+.odd-btn.active .odd-sel { color: var(--gold-light); }
+.odd-val { font-size: 1.05rem; font-weight: 800; color: var(--text); }
+.odd-btn.active .odd-val { color: var(--gold-light); }
+
+/* Betslip */
+.betslip {
+  margin-top: 12px; background: var(--dark3);
+  border: 1.5px solid rgba(201,162,39,.4); border-radius: 10px;
+  padding: 12px;
+}
+.betslip-sel { font-size: .9rem; font-weight: 700; margin-bottom: 10px; }
+.betslip-odd { color: var(--gold-light); }
+.betslip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.stake-input {
+  width: 100px; background: var(--dark); border: 1.5px solid var(--card-border);
+  border-radius: 8px; padding: 8px 12px; color: var(--text);
+  font-size: .9rem; outline: none;
+}
+.stake-input:focus { border-color: var(--gold); }
+.potential { flex: 1; font-size: .85rem; color: #4ade80; font-weight: 600; min-width: 110px; }
+.place-bet-btn {
+  background: linear-gradient(135deg, var(--green), #16a34a);
+  color: #fff; border: none; border-radius: 8px;
+  padding: 9px 18px; font-weight: 800; font-size: .88rem; cursor: pointer;
+  transition: opacity .2s; white-space: nowrap;
+}
+.place-bet-btn:hover { opacity: .88; }
+
+/* My bets */
+.mybets-title, .allbets-title {
+  font-size: .76rem; color: var(--text-muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 6px;
+}
+.mybets-list { display: flex; flex-direction: column; gap: 6px; }
+.mybet {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px; border-radius: 8px; font-size: .84rem;
+  border-left: 3px solid var(--card-border); background: var(--dark3);
+}
+.mybet.open { border-left-color: var(--gold); }
+.mybet.won { border-left-color: var(--green); background: rgba(34,197,94,.08); }
+.mybet.lost { border-left-color: var(--red); background: rgba(239,68,68,.06); opacity: .8; }
+.mybet-sel { font-weight: 700; }
+.mybet-info { font-size: .78rem; color: var(--text-muted); }
+
+/* All bets */
+.allbets-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.allbet-tag {
+  background: rgba(255,255,255,.04); border: 1px solid var(--card-border);
+  border-radius: 16px; padding: 4px 10px; font-size: .76rem; color: var(--text);
+}
+
+/* Settle (organizer) */
+.settle-btn {
+  margin-top: 14px; width: 100%;
+  background: transparent; border: 1px dashed var(--card-border);
+  color: var(--text-muted); border-radius: 8px; padding: 9px;
+  font-size: .82rem; cursor: pointer; transition: all .2s;
+}
+.settle-btn:hover { border-color: var(--gold); color: var(--gold-light); }
+.settle-form {
+  margin-top: 10px; background: var(--dark3);
+  border: 1px solid var(--card-border); border-radius: 10px; padding: 14px;
+}
+.settle-grid { display: flex; align-items: flex-end; justify-content: center; gap: 12px; margin-bottom: 12px; }
+.settle-grid label {
+  display: flex; flex-direction: column; gap: 4px; font-size: .8rem;
+  color: var(--text-muted); text-align: center; font-weight: 600;
+}
+.settle-grid input {
+  width: 64px; background: var(--dark); border: 1.5px solid var(--card-border);
+  border-radius: 8px; padding: 8px; color: var(--text); font-size: 1.1rem;
+  text-align: center; outline: none;
+}
+.settle-grid input:focus { border-color: var(--gold); }
+.settle-dash { font-size: 1.4rem; padding-bottom: 6px; color: var(--text-muted); }
+.settle-first {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: .84rem; margin-bottom: 12px; color: var(--text-muted);
+}
+.settle-first select {
+  background: var(--dark); border: 1.5px solid var(--card-border);
+  border-radius: 8px; padding: 7px 10px; color: var(--text); font-size: .85rem; outline: none;
+}
+.settle-confirm {
+  width: 100%; background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  color: var(--dark); border: none; border-radius: 8px;
+  padding: 10px; font-weight: 800; font-size: .88rem; cursor: pointer;
+}
+.settle-warn { font-size: .72rem; color: var(--text-muted); margin-top: 8px; text-align: center; }
+
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {
   .match-teams { padding: 16px 12px 10px; }
@@ -486,13 +649,19 @@ footer strong { color: var(--gold-light); }
     <span id="user-name-display">Chargement...</span>
     <button id="change-name-btn" onclick="changeName()">Changer</button>
   </div>
-  <button id="notif-btn" onclick="requestNotifications()">
-    🔔 Activer les notifications
-  </button>
+  <div class="identity-right">
+    <div class="balance-pill">💰 <span id="balance-amount">100.00 €</span></div>
+    <button id="notif-btn" onclick="requestNotifications()">
+      🔔 Activer les notifications
+    </button>
+  </div>
 </div>
 
 <!-- Main -->
 <main>
+  <div class="section-title">🏆 Classement des parieurs</div>
+  <div id="leaderboard"></div>
+
   <div class="section-title">⚽ Programme des matchs</div>
   <div id="matches-container">
     <!-- Cards injected by JS -->
@@ -588,10 +757,30 @@ const BRINGING_OPTIONS = [
   { id: "dessert",  label: "Dessert",     icon: "🎂" },
 ];
 
+// ── Cotes par match (1X2 / Total buts 2.5 / Première équipe à marquer) ──
+// Cotes fixes définies à l'avance — gain = mise × cote
+const ODDS = {
+  m02: { result: { home: 1.75, draw: 3.50, away: 4.40 }, totals: { over: 1.85, under: 1.90 }, firstScorer: { home: 1.65, away: 3.00, none: 9.0 } },
+  m03: { result: { home: 2.10, draw: 3.20, away: 3.30 }, totals: { over: 1.95, under: 1.80 }, firstScorer: { home: 1.95, away: 2.55, none: 9.5 } },
+  m04: { result: { home: 1.60, draw: 3.80, away: 5.00 }, totals: { over: 1.80, under: 1.95 }, firstScorer: { home: 1.55, away: 3.30, none: 9.0 } },
+  m05: { result: { home: 4.50, draw: 3.40, away: 1.72 }, totals: { over: 1.90, under: 1.85 }, firstScorer: { home: 3.10, away: 1.62, none: 9.0 } },
+  m06: { result: { home: 1.50, draw: 4.00, away: 5.50 }, totals: { over: 1.75, under: 2.00 }, firstScorer: { home: 1.50, away: 3.60, none: 9.5 } },
+  m07: { result: { home: 2.90, draw: 3.10, away: 2.30 }, totals: { over: 2.00, under: 1.75 }, firstScorer: { home: 2.50, away: 2.00, none: 10.0 } },
+  m08: { result: { home: 1.45, draw: 4.20, away: 6.00 }, totals: { over: 1.78, under: 1.98 }, firstScorer: { home: 1.48, away: 3.80, none: 9.0 } },
+  m09: { result: { home: 1.55, draw: 3.90, away: 5.20 }, totals: { over: 1.82, under: 1.92 }, firstScorer: { home: 1.52, away: 3.40, none: 9.5 } },
+  m10: { result: { home: 1.65, draw: 3.70, away: 4.80 }, totals: { over: 1.80, under: 1.95 }, firstScorer: { home: 1.58, away: 3.20, none: 9.0 } },
+};
+
+const START_BALANCE = 100; // € fictifs au départ
+
 // ── State ──────────────────────────────────────────────────
 let currentUser = null;       // { id, name }
 let db = null;                // Firestore instance (or null if demo mode)
 let votes = {};               // { matchId: { userId: { name, coming, bringing, other } } }
+let balances = {};            // { userId: { name, balance } }
+let bets = {};                // { matchId: { betId: betObj } }
+let results = {};             // { matchId: { settled, homeScore, awayScore, firstScorer } }
+let betDraft = {};            // { matchId: { market, selection, odds, label } } — sélection en cours
 let unsubscribers = [];       // Firestore listeners
 
 // ── Utils ──────────────────────────────────────────────────
@@ -665,14 +854,68 @@ async function initFirebase() {
 // ── Subscribe to real-time updates ─────────────────────────
 function subscribeToMatch(matchId) {
   if (!db) return;
-  const { collection, onSnapshot } = window._firebaseModules;
-  const ref = collection(db, "matches", matchId, "votes");
-  const unsub = onSnapshot(ref, (snap) => {
+  const { collection, doc, onSnapshot } = window._firebaseModules;
+
+  // Votes
+  const votesRef = collection(db, "matches", matchId, "votes");
+  unsubscribers.push(onSnapshot(votesRef, (snap) => {
     votes[matchId] = {};
-    snap.forEach((doc) => { votes[matchId][doc.id] = doc.data(); });
+    snap.forEach((d) => { votes[matchId][d.id] = d.data(); });
     renderMatchVotes(matchId);
-  });
-  unsubscribers.push(unsub);
+    renderMatchBetting(matchId);
+  }));
+
+  // Paris
+  const betsRef = collection(db, "matches", matchId, "bets");
+  unsubscribers.push(onSnapshot(betsRef, (snap) => {
+    bets[matchId] = {};
+    snap.forEach((d) => { bets[matchId][d.id] = d.data(); });
+    renderMatchBetting(matchId);
+  }));
+
+  // Résultat
+  const resRef = doc(db, "results", matchId);
+  unsubscribers.push(onSnapshot(resRef, (d) => {
+    results[matchId] = d.exists() ? d.data() : null;
+    renderMatchBetting(matchId);
+  }));
+}
+
+// Abonnement global aux soldes des joueurs
+function subscribeBalances() {
+  if (!db) return;
+  const { collection, onSnapshot } = window._firebaseModules;
+  const ref = collection(db, "users");
+  unsubscribers.push(onSnapshot(ref, (snap) => {
+    balances = {};
+    snap.forEach((d) => { balances[d.id] = d.data(); });
+    updateBalanceDisplay();
+    renderLeaderboard();
+    MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
+  }));
+}
+
+// Crée le compte joueur (100 €) si inexistant
+async function ensureBalance() {
+  if (!currentUser) return;
+  if (!db) {
+    if (balances[currentUser.id] === undefined)
+      balances[currentUser.id] = { name: currentUser.name, balance: START_BALANCE };
+    updateBalanceDisplay();
+    return;
+  }
+  const { doc, getDoc, setDoc } = window._firebaseModules;
+  const ref = doc(db, "users", currentUser.id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    await setDoc(ref, { name: currentUser.name, balance: START_BALANCE });
+  } else if (snap.data().name !== currentUser.name) {
+    await setDoc(ref, { name: currentUser.name }, { merge: true });
+  }
+}
+
+function myBalance() {
+  return balances[currentUser?.id]?.balance ?? START_BALANCE;
 }
 
 // ── Save vote ──────────────────────────────────────────────
@@ -698,16 +941,25 @@ async function saveVote(matchId, coming, bringing, other) {
   }
 
   renderMatchVotes(matchId);
+  if (!db) renderMatchBetting(matchId);
 }
 
 // ── Render all matches ─────────────────────────────────────
+let _subscribed = false;
 function renderMatches() {
   const container = document.getElementById("matches-container");
   container.innerHTML = "";
   MATCHES.forEach((m) => {
     container.appendChild(buildMatchCard(m));
-    if (db) subscribeToMatch(m.id);
   });
+  if (db && !_subscribed) {
+    _subscribed = true;
+    MATCHES.forEach((m) => subscribeToMatch(m.id));
+    subscribeBalances();
+  }
+  ensureBalance();
+  updateBalanceDisplay();
+  renderLeaderboard();
 }
 
 function buildMatchCard(m) {
@@ -758,7 +1010,8 @@ function buildMatchCard(m) {
     `<div id="attendance-${m.id}" class="attendance-summary"><span class="att-loading">Chargement...</span></div>` +
     `<div id="vote-${m.id}" class="vote-section"></div>` +
     `<div id="bringing-form-${m.id}" class="bringing-section"></div>` +
-    `<div id="bringing-summary-${m.id}" class="bringing-summary" style="display:none"></div>`;
+    `<div id="bringing-summary-${m.id}" class="bringing-summary" style="display:none"></div>` +
+    (m.ceremony ? "" : `<div id="betting-${m.id}" class="betting-section"></div>`);
 
   return div;
 }
@@ -878,6 +1131,319 @@ function saveBringing(matchId) {
   const myVote = (votes[matchId] || {})[currentUser.id] || {};
   const other = document.getElementById(`other-${matchId}`)?.value?.trim() || "";
   saveVote(matchId, true, myVote.bringing, other);
+}
+
+// ════════════════════════════════════════════════════════════
+//  SYSTÈME DE PARIS (€ fictifs)
+// ════════════════════════════════════════════════════════════
+
+const MARKET_LABELS = {
+  result: "Résultat du match",
+  totals: "Plus / Moins de 2,5 buts",
+  firstScorer: "Première équipe à marquer",
+};
+
+function selectionLabel(m, market, sel) {
+  if (market === "result")
+    return sel === "home" ? `Victoire ${m.home.name}` : sel === "away" ? `Victoire ${m.away.name}` : "Match nul";
+  if (market === "totals")
+    return sel === "over" ? "Plus de 2,5 buts" : "Moins de 2,5 buts";
+  if (market === "firstScorer")
+    return sel === "home" ? `${m.home.name} marque en 1er` : sel === "away" ? `${m.away.name} marque en 1er` : "Aucun but";
+  return sel;
+}
+
+// ── Affichage solde + classement ───────────────────────────
+function updateBalanceDisplay() {
+  const el = document.getElementById("balance-amount");
+  if (el) el.textContent = myBalance().toFixed(2) + " €";
+}
+
+function renderLeaderboard() {
+  const el = document.getElementById("leaderboard");
+  if (!el) return;
+  const players = Object.entries(balances)
+    .map(([id, v]) => ({ id, name: v.name, balance: v.balance ?? START_BALANCE }))
+    .sort((a, b) => b.balance - a.balance);
+  if (!players.length) { el.innerHTML = ""; return; }
+  const medals = ["🥇", "🥈", "🥉"];
+  el.innerHTML = players.map((p, i) => `
+    <div class="lb-row${p.id === currentUser?.id ? " me" : ""}">
+      <span class="lb-rank">${medals[i] || (i + 1) + "."}</span>
+      <span class="lb-name">${p.name}</span>
+      <span class="lb-balance">${p.balance.toFixed(2)} €</span>
+    </div>`).join("");
+}
+
+// ── Rendu de la section paris pour un match ────────────────
+function renderMatchBetting(matchId) {
+  const el = document.getElementById(`betting-${matchId}`);
+  if (!el) return;
+  const m = MATCHES.find((x) => x.id === matchId);
+  if (!m || m.ceremony) return;
+
+  const result = results[matchId];
+  const matchBets = bets[matchId] || {};
+  const myVote = (votes[matchId] || {})[currentUser?.id];
+  const isPresent = myVote?.coming === true;
+  const odds = ODDS[matchId];
+
+  let html = `<div class="betting-title">🎰 Paris ${result?.settled ? "— Terminé" : ""}</div>`;
+
+  // Résultat officiel
+  if (result?.settled) {
+    html += `<div class="result-banner">
+      🏁 Score final : <strong>${m.home.name} ${result.homeScore} - ${result.awayScore} ${m.away.name}</strong>
+    </div>`;
+  }
+
+  // Mes paris sur ce match
+  const myBets = Object.entries(matchBets).filter(([, b]) => b.userId === currentUser?.id);
+  if (myBets.length) {
+    html += `<div class="mybets-title">Mes paris</div><div class="mybets-list">`;
+    myBets.forEach(([, b]) => {
+      const stCls = b.status === "won" ? "won" : b.status === "lost" ? "lost" : "open";
+      const stTxt = b.status === "won" ? `✅ Gagné +${b.potentialWin.toFixed(2)} €`
+        : b.status === "lost" ? "❌ Perdu"
+        : `⏳ En cours · gain potentiel ${b.potentialWin.toFixed(2)} €`;
+      html += `<div class="mybet ${stCls}">
+        <span class="mybet-sel">${b.label}</span>
+        <span class="mybet-info">${b.stake.toFixed(2)} € @ ${b.odds.toFixed(2)} — ${stTxt}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Zone de pari (si pas réglé)
+  if (!result?.settled) {
+    if (!isPresent) {
+      html += `<div class="bet-locked">🎟️ Vote « Je viens » pour pouvoir parier sur ce match.</div>`;
+    } else {
+      const draft = betDraft[matchId];
+      html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong></div>`;
+      // Marchés
+      ["result", "totals", "firstScorer"].forEach((market) => {
+        html += `<div class="market"><div class="market-label">${MARKET_LABELS[market]}</div><div class="market-options">`;
+        const opts = market === "result" ? ["home", "draw", "away"]
+          : market === "totals" ? ["over", "under"]
+          : ["home", "away", "none"];
+        opts.forEach((sel) => {
+          const o = odds[market][sel];
+          const active = draft && draft.market === market && draft.selection === sel;
+          const short = market === "result" ? (sel === "home" ? "1" : sel === "draw" ? "N" : "2")
+            : market === "totals" ? (sel === "over" ? "+2,5" : "−2,5")
+            : (sel === "home" ? m.home.name : sel === "away" ? m.away.name : "Aucun");
+          html += `<button class="odd-btn${active ? " active" : ""}"
+            onclick="selectBet('${matchId}','${market}','${sel}',${o})">
+            <span class="odd-sel">${short}</span><span class="odd-val">${o.toFixed(2)}</span>
+          </button>`;
+        });
+        html += `</div></div>`;
+      });
+      // Bulletin de pari
+      if (draft) {
+        html += `<div class="betslip">
+          <div class="betslip-sel">${selectionLabel(m, draft.market, draft.selection)} <span class="betslip-odd">@ ${draft.odds.toFixed(2)}</span></div>
+          <div class="betslip-row">
+            <input type="number" id="stake-${matchId}" class="stake-input" min="1" step="1"
+              max="${myBalance()}" placeholder="Mise €" oninput="updatePotential('${matchId}')" />
+            <span class="potential" id="potential-${matchId}">Gain : —</span>
+            <button class="place-bet-btn" onclick="placeBet('${matchId}')">Parier 🎯</button>
+          </div>
+        </div>`;
+      }
+    }
+  }
+
+  // Tous les paris du groupe
+  const allBets = Object.values(matchBets);
+  if (allBets.length) {
+    html += `<div class="allbets-title">📋 Paris du groupe (${allBets.length})</div><div class="allbets-list">`;
+    allBets.forEach((b) => {
+      const icon = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
+      html += `<span class="allbet-tag">${icon} <strong>${b.name}</strong> · ${b.label} · ${b.stake.toFixed(0)}€</span>`;
+    });
+    html += `</div>`;
+  }
+
+  // Bouton organisateur : saisir le résultat
+  if (!result?.settled) {
+    html += `<button class="settle-btn" onclick="openSettleForm('${matchId}')">🔧 Organisateur : saisir le résultat</button>
+      <div id="settle-form-${matchId}" class="settle-form" style="display:none"></div>`;
+  }
+
+  el.innerHTML = html;
+  if (betDraft[matchId]) updatePotential(matchId);
+}
+
+// ── Sélection d'un pari ────────────────────────────────────
+function selectBet(matchId, market, selection, odds) {
+  const m = MATCHES.find((x) => x.id === matchId);
+  betDraft[matchId] = { market, selection, odds, label: selectionLabel(m, market, selection) };
+  renderMatchBetting(matchId);
+}
+
+function updatePotential(matchId) {
+  const draft = betDraft[matchId];
+  const input = document.getElementById(`stake-${matchId}`);
+  const out = document.getElementById(`potential-${matchId}`);
+  if (!draft || !input || !out) return;
+  const stake = parseFloat(input.value) || 0;
+  out.textContent = stake > 0 ? `Gain : ${(stake * draft.odds).toFixed(2)} €` : "Gain : —";
+}
+
+// ── Placement d'un pari ────────────────────────────────────
+async function placeBet(matchId) {
+  if (!currentUser) return;
+  const draft = betDraft[matchId];
+  if (!draft) return;
+  const input = document.getElementById(`stake-${matchId}`);
+  const stake = parseFloat(input?.value);
+
+  if (!stake || stake <= 0) { showToast("⚠️ Entre une mise valide."); return; }
+  if (stake > myBalance()) { showToast("💸 Solde insuffisant !"); return; }
+  if (results[matchId]?.settled) { showToast("⛔ Ce match est terminé."); return; }
+  const myVote = (votes[matchId] || {})[currentUser.id];
+  if (myVote?.coming !== true) { showToast("🎟️ Vote « Je viens » d'abord."); return; }
+
+  const potentialWin = +(stake * draft.odds).toFixed(2);
+  const betId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random().toString(36).slice(2));
+  const bet = {
+    userId: currentUser.id, name: currentUser.name,
+    market: draft.market, selection: draft.selection, label: draft.label,
+    stake: +stake.toFixed(2), odds: draft.odds, potentialWin,
+    status: "open", createdAt: Date.now(),
+  };
+
+  if (db) {
+    try {
+      const { doc, setDoc, runTransaction } = window._firebaseModules;
+      // Débite le solde de façon atomique
+      await runTransaction(db, async (tx) => {
+        const uref = doc(db, "users", currentUser.id);
+        const usnap = await tx.get(uref);
+        const cur = usnap.exists() ? (usnap.data().balance ?? START_BALANCE) : START_BALANCE;
+        if (stake > cur) throw new Error("insufficient");
+        tx.set(uref, { name: currentUser.name, balance: +(cur - stake).toFixed(2) }, { merge: true });
+      });
+      await setDoc(doc(db, "matches", matchId, "bets", betId), bet);
+    } catch (err) {
+      showToast(err.message === "insufficient" ? "💸 Solde insuffisant !" : "Erreur, réessaie.");
+      return;
+    }
+  } else {
+    // Mode démo (local)
+    balances[currentUser.id] = { name: currentUser.name, balance: +(myBalance() - stake).toFixed(2) };
+    if (!bets[matchId]) bets[matchId] = {};
+    bets[matchId][betId] = bet;
+    updateBalanceDisplay();
+  }
+
+  betDraft[matchId] = null;
+  showToast(`🎯 Pari placé : ${bet.label} pour ${stake.toFixed(2)} €`);
+  renderMatchBetting(matchId);
+  renderLeaderboard();
+}
+
+// ── Formulaire de résultat (organisateur) ──────────────────
+function openSettleForm(matchId) {
+  const el = document.getElementById(`settle-form-${matchId}`);
+  if (!el) return;
+  const m = MATCHES.find((x) => x.id === matchId);
+  if (el.style.display === "block") { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.innerHTML = `
+    <div class="settle-grid">
+      <label>${m.home.name}<input type="number" id="hs-${matchId}" min="0" value="0" /></label>
+      <span class="settle-dash">-</span>
+      <label>${m.away.name}<input type="number" id="as-${matchId}" min="0" value="0" /></label>
+    </div>
+    <div class="settle-first">
+      <span>Première équipe à marquer :</span>
+      <select id="fs-${matchId}">
+        <option value="home">${m.home.name}</option>
+        <option value="away">${m.away.name}</option>
+        <option value="none">Aucun but</option>
+      </select>
+    </div>
+    <button class="settle-confirm" onclick="settleMatch('${matchId}')">✅ Valider & régler les paris</button>
+    <p class="settle-warn">⚠️ Action définitive : crédite les gagnants et clôture les paris de ce match.</p>`;
+}
+
+// ── Règlement des paris ────────────────────────────────────
+function betWins(bet, res) {
+  if (bet.market === "result") {
+    const actual = res.homeScore > res.awayScore ? "home" : res.homeScore < res.awayScore ? "away" : "draw";
+    return bet.selection === actual;
+  }
+  if (bet.market === "totals") {
+    const total = res.homeScore + res.awayScore;
+    return bet.selection === "over" ? total > 2.5 : total < 2.5;
+  }
+  if (bet.market === "firstScorer") {
+    return bet.selection === res.firstScorer;
+  }
+  return false;
+}
+
+async function settleMatch(matchId) {
+  if (results[matchId]?.settled) { showToast("Déjà réglé."); return; }
+  const hs = parseInt(document.getElementById(`hs-${matchId}`)?.value, 10);
+  const as = parseInt(document.getElementById(`as-${matchId}`)?.value, 10);
+  const fs = document.getElementById(`fs-${matchId}`)?.value;
+  if (isNaN(hs) || isNaN(as)) { showToast("Entre un score valide."); return; }
+
+  // Cohérence : si aucun but, score doit être 0-0
+  if (fs === "none" && (hs > 0 || as > 0)) {
+    showToast("⚠️ 'Aucun but' incompatible avec ce score.");
+    return;
+  }
+  if ((hs > 0 || as > 0) && fs === "none") return;
+
+  const res = { settled: true, homeScore: hs, awayScore: as, firstScorer: fs,
+    settledBy: currentUser?.name || "?", settledAt: Date.now() };
+  const matchBets = bets[matchId] || {};
+
+  if (db) {
+    try {
+      const { doc, setDoc, runTransaction } = window._firebaseModules;
+      // Crédite chaque gagnant
+      for (const [betId, bet] of Object.entries(matchBets)) {
+        if (bet.status !== "open") continue;
+        const won = betWins(bet, res);
+        if (won) {
+          await runTransaction(db, async (tx) => {
+            const uref = doc(db, "users", bet.userId);
+            const usnap = await tx.get(uref);
+            const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+            tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
+          });
+        }
+        await setDoc(doc(db, "matches", matchId, "bets", betId), { status: won ? "won" : "lost" }, { merge: true });
+      }
+      await setDoc(doc(db, "results", matchId), res);
+    } catch (err) {
+      console.error(err); showToast("Erreur lors du règlement.");
+      return;
+    }
+  } else {
+    Object.entries(matchBets).forEach(([betId, bet]) => {
+      if (bet.status !== "open") return;
+      const won = betWins(bet, res);
+      bet.status = won ? "won" : "lost";
+      if (won) {
+        const b = balances[bet.userId] || { name: bet.name, balance: 0 };
+        b.balance = +(b.balance + bet.potentialWin).toFixed(2);
+        balances[bet.userId] = b;
+      }
+    });
+    results[matchId] = res;
+    updateBalanceDisplay();
+  }
+
+  showToast(`🏁 Résultat enregistré : ${hs}-${as}. Paris réglés !`);
+  renderMatchBetting(matchId);
+  renderLeaderboard();
 }
 
 // ── Notifications ──────────────────────────────────────────
