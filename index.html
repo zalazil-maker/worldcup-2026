@@ -442,6 +442,28 @@ footer {
 }
 footer strong { color: var(--gold-light); }
 
+/* ── Live score ───────────────────────────────────────────── */
+.live-score { text-align: center; }
+.live-score:empty { display: none; }
+.live-score.live, .live-score.done {
+  margin: 0 16px 10px;
+  padding: 8px 12px; border-radius: 8px;
+  font-weight: 800; font-size: 1rem; letter-spacing: .02em;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.live-score.live {
+  background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4);
+  color: #fca5a5;
+}
+.live-score.done {
+  background: rgba(201,162,39,.12); border: 1px solid rgba(201,162,39,.3);
+  color: var(--gold-light);
+}
+.live-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: #ef4444;
+  animation: pulse 1.2s infinite; flex-shrink: 0;
+}
+
 /* ── Identity right / balance ─────────────────────────────── */
 .identity-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .balance-pill {
@@ -605,6 +627,7 @@ footer strong { color: var(--gold-light); }
   padding: 10px; font-weight: 800; font-size: .88rem; cursor: pointer;
 }
 .settle-warn { font-size: .72rem; color: var(--text-muted); margin-top: 8px; text-align: center; }
+.settle-prefill { font-size: .78rem; color: var(--green); margin-bottom: 10px; text-align: center; }
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {
@@ -769,28 +792,50 @@ const TEAM_RATINGS = {
   "Qatar": 1600, "Haïti": 1500,
 };
 const DEFAULT_RATING = 1700;
+
+// ── Scores en direct (TheSportsDB, gratuit, sans clé serveur) ──
+const WC_LEAGUE_ID = "4429"; // FIFA World Cup
+const NAME_MAP = {            // nos noms FR → noms de l'API (EN)
+  "Mexique": "Mexico", "Afrique du Sud": "South Africa", "Canada": "Canada",
+  "Bosnie": "Bosnia", "USA": "USA", "Paraguay": "Paraguay", "Qatar": "Qatar",
+  "Suisse": "Switzerland", "Brésil": "Brazil", "Maroc": "Morocco", "Haïti": "Haiti",
+  "Écosse": "Scotland", "France": "France", "Sénégal": "Senegal", "Portugal": "Portugal",
+  "RD Congo": "Congo", "Angleterre": "England", "Croatie": "Croatia",
+};
+
 const MARGIN = 1.06;       // marge "bookmaker" (~6%) sur les cotes
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const toOdds = (p) => Math.max(1.05, +(((1 / Math.max(p, 0.001)) / MARGIN)).toFixed(2));
 
 // Probabilités de base à partir du niveau des deux équipes
+// Compression des probas vers l'équilibre (réduit l'écart de cotes)
+// SHRINK = 0 → cotes "brutes" très écartées · plus c'est haut, plus c'est resserré
+const SHRINK = 0.32;
+function shrink(probs) {
+  const n = Object.keys(probs).length;
+  const u = 1 / n;
+  const out = {};
+  for (const k in probs) out[k] = (1 - SHRINK) * probs[k] + SHRINK * u;
+  return out;
+}
+
 function baseProbs(m) {
   const ra = TEAM_RATINGS[m.home.name] ?? DEFAULT_RATING;
   const rb = TEAM_RATINGS[m.away.name] ?? DEFAULT_RATING;
   const diff = ra - rb;
-  const W = 1 / (1 + Math.pow(10, -diff / 400));          // part de victoire dom. (hors nul)
-  const pDraw = 0.28 * Math.exp(-(diff * diff) / (2 * 200 * 200));
+  const W = 1 / (1 + Math.pow(10, -diff / 480));          // /480 = écart plus doux
+  const pDraw = 0.27 * Math.exp(-(diff * diff) / (2 * 220 * 220));
   const result = { home: (1 - pDraw) * W, draw: pDraw, away: (1 - pDraw) * (1 - W) };
 
   const avg = (ra + rb) / 2;
-  const expTotal = 2.5 + (avg - 1750) / 250 + Math.abs(diff) / 450;
-  const pOver = clamp(0.5 + (expTotal - 2.5) * 0.18, 0.35, 0.66);
+  const expTotal = 2.5 + (avg - 1750) / 280 + Math.abs(diff) / 550;
+  const pOver = clamp(0.5 + (expTotal - 2.5) * 0.16, 0.38, 0.62);
   const totals = { over: pOver, under: 1 - pOver };
 
-  const pNone = clamp(0.05 + (1800 - avg) / 4000, 0.03, 0.12);
+  const pNone = clamp(0.05 + (1800 - avg) / 4000, 0.03, 0.11);
   const firstScorer = { home: (1 - pNone) * W, away: (1 - pNone) * (1 - W), none: pNone };
 
-  return { result, totals, firstScorer };
+  return { result: shrink(result), totals: shrink(totals), firstScorer: shrink(firstScorer) };
 }
 
 // Mélange les probas de base avec les mises du groupe (cotes dynamiques)
@@ -1014,7 +1059,10 @@ function renderMatches() {
   ensureBalance();
   updateBalanceDisplay();
   renderLeaderboard();
+  MATCHES.forEach((m) => { if (!m.ceremony) renderLiveScore(m.id); });
+  if (!_livePolling) { _livePolling = true; startLivePolling(); }
 }
+let _livePolling = false;
 
 function buildMatchCard(m) {
   const past = isPast(m);
@@ -1061,6 +1109,7 @@ function buildMatchCard(m) {
 
   // Attendance + vote + bringing (placeholder — filled by renderMatchVotes)
   div.innerHTML = headerHtml + teamsHtml +
+    (m.ceremony ? "" : `<div id="live-${m.id}" class="live-score"></div>`) +
     `<div id="attendance-${m.id}" class="attendance-summary"><span class="att-loading">Chargement...</span></div>` +
     `<div id="vote-${m.id}" class="vote-section"></div>` +
     `<div id="bringing-form-${m.id}" class="bringing-section"></div>` +
@@ -1406,11 +1455,16 @@ function openSettleForm(matchId) {
   const m = MATCHES.find((x) => x.id === matchId);
   if (el.style.display === "block") { el.style.display = "none"; return; }
   el.style.display = "block";
+  // Pré-remplit avec le score live si disponible
+  const ls = liveScores[matchId];
+  const hv = ls && ls.home != null ? ls.home : 0;
+  const av = ls && ls.away != null ? ls.away : 0;
   el.innerHTML = `
+    ${ls && (ls.home != null) ? `<p class="settle-prefill">⚽ Score récupéré en direct : ${hv}-${av} (vérifie avant de valider)</p>` : ""}
     <div class="settle-grid">
-      <label>${m.home.name}<input type="number" id="hs-${matchId}" min="0" value="0" /></label>
+      <label>${m.home.name}<input type="number" id="hs-${matchId}" min="0" value="${hv}" /></label>
       <span class="settle-dash">-</span>
-      <label>${m.away.name}<input type="number" id="as-${matchId}" min="0" value="0" /></label>
+      <label>${m.away.name}<input type="number" id="as-${matchId}" min="0" value="${av}" /></label>
     </div>
     <div class="settle-first">
       <span>Première équipe à marquer :</span>
@@ -1498,6 +1552,83 @@ async function settleMatch(matchId) {
   showToast(`🏁 Résultat enregistré : ${hs}-${as}. Paris réglés !`);
   renderMatchBetting(matchId);
   renderLeaderboard();
+}
+
+// ════════════════════════════════════════════════════════════
+//  SCORES EN DIRECT
+// ════════════════════════════════════════════════════════════
+let liveScores = {};  // { matchId: { home, away, status } }
+
+const LIVE_STATUSES = ["1H", "2H", "HT", "ET", "BT", "P", "LIVE", "INPLAY", "PEN LIVE"];
+const DONE_STATUSES = ["FT", "AET", "PEN", "MATCH FINISHED", "FINISHED"];
+
+function norm(s) {
+  return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z]/g, "");
+}
+
+async function fetchDayEvents(date) {
+  try {
+    const r = await fetch(`https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=${date}&s=Soccer`);
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (j.events || []).filter((e) => e.idLeague === WC_LEAGUE_ID);
+  } catch (_) { return []; }
+}
+
+async function refreshLiveScores(todayOnly) {
+  const today = new Date().toISOString().slice(0, 10);
+  const dates = [...new Set(MATCHES.filter((m) => !m.ceremony).map((m) => m.date))]
+    .filter((d) => (todayOnly ? d === today : true));
+
+  for (const d of dates) {
+    const events = await fetchDayEvents(d);
+    if (!events.length) continue;
+    MATCHES.filter((m) => !m.ceremony && m.date === d).forEach((m) => {
+      const hm = norm(NAME_MAP[m.home.name] || m.home.name);
+      const am = norm(NAME_MAP[m.away.name] || m.away.name);
+      const match = (a, b) => a.includes(b) || b.includes(a);
+      const ev = events.find((e) => {
+        const h = norm(e.strHomeTeam), a = norm(e.strAwayTeam);
+        return (match(h, hm) && match(a, am)) || (match(h, am) && match(a, hm));
+      });
+      if (!ev) return;
+      // Orientation : le domicile de l'API correspond-il à notre domicile ?
+      const flip = !match(norm(ev.strHomeTeam), hm);
+      liveScores[m.id] = {
+        home: flip ? ev.intAwayScore : ev.intHomeScore,
+        away: flip ? ev.intHomeScore : ev.intAwayScore,
+        status: (ev.strStatus || "").toUpperCase(),
+        progress: ev.strProgress || "",
+      };
+      renderLiveScore(m.id);
+    });
+  }
+}
+
+function renderLiveScore(matchId) {
+  const el = document.getElementById(`live-${matchId}`);
+  if (!el) return;
+  const ls = liveScores[matchId];
+  if (!ls || (ls.home == null && ls.away == null && !LIVE_STATUSES.includes(ls.status))) {
+    el.innerHTML = ""; el.className = "live-score"; return;
+  }
+  const st = ls.status;
+  const score = `${ls.home ?? 0} - ${ls.away ?? 0}`;
+  if (LIVE_STATUSES.includes(st)) {
+    const min = ls.progress ? ` ${ls.progress}'` : (st === "HT" ? " mi-temps" : "");
+    el.className = "live-score live";
+    el.innerHTML = `<span class="live-dot"></span> EN DIRECT ${score}${min}`;
+  } else if (DONE_STATUSES.includes(st)) {
+    el.className = "live-score done";
+    el.innerHTML = `🏁 Score final ${score}`;
+  } else {
+    el.innerHTML = ""; el.className = "live-score";
+  }
+}
+
+function startLivePolling() {
+  refreshLiveScores(false);                               // tout au chargement
+  setInterval(() => refreshLiveScores(true), 5 * 60 * 1000); // puis toutes les 5 min (jour J)
 }
 
 // ── Notifications ──────────────────────────────────────────
