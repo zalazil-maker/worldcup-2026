@@ -2212,8 +2212,9 @@ function unlockAdmin() {
   const input = document.getElementById("admin-pin-input");
   const err = document.getElementById("admin-pin-error");
   const pin = (typeof ADMIN_PIN !== "undefined") ? ADMIN_PIN : "2026";
-  if (input.value === String(pin)) {
-    sessionStorage.setItem("wc2026_admin", "1");
+  const entered = (input.value || "").trim();
+  if (entered === String(pin).trim()) {
+    try { sessionStorage.setItem("wc2026_admin", "1"); } catch (_) {}
     document.getElementById("admin-pin-gate").classList.add("hidden");
     document.getElementById("admin-dashboard").classList.remove("hidden");
     renderAdminDashboard();
@@ -2262,8 +2263,20 @@ function fmtDate(ts) {
 
 function renderAdminDashboard() {
   const el = document.getElementById("admin-dashboard");
+  try {
+    _renderAdminDashboard(el);
+  } catch (err) {
+    console.error("Admin dashboard error:", err);
+    el.innerHTML = `<h2>📊 Tableau de bord</h2>
+      <p style="color:#f87171">Erreur d'affichage : ${err.message}</p>
+      <button class="admin-refresh" onclick="renderAdminDashboard()">🔄 Réessayer</button>`;
+  }
+}
+
+function _renderAdminDashboard(el) {
+  const num = (x) => (typeof x === "number" && isFinite(x)) ? x : 0;
   const players = Object.entries(balances).map(([id, v]) => ({ id, ...v }));
-  players.sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0));
+  players.sort((a, b) => num(b.balance) - num(a.balance));
 
   const installedCount = players.filter((p) => p.installed).length;
 
@@ -2277,7 +2290,7 @@ function renderAdminDashboard() {
   players.forEach((p) => {
     playersHtml += `<tr>
       <td><strong>${p.name || "?"}</strong>${isMe(p.id) ? ' <span class="admin-dim">(toi)</span>' : ""}</td>
-      <td class="admin-bal">${(p.balance ?? 0).toFixed(2)} €</td>
+      <td class="admin-bal">${num(p.balance).toFixed(2)} €</td>
       <td>${p.platform || "—"}</td>
       <td>${p.installed ? "✅" : "—"}</td>
       <td class="admin-dim">${fmtDate(p.firstSeen)}</td>
@@ -2317,7 +2330,7 @@ function renderAdminDashboard() {
     betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}</div>`;
     arr.forEach((b) => {
       const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
-      betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name}</strong> · ${b.label} · ${b.stake.toFixed(0)}€ @ ${b.odds.toFixed(2)}</div>`;
+      betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</div>`;
     });
   });
   if (!totalBets) betsHtml += `<div class="admin-dim">Aucun pari encore.</div>`;
