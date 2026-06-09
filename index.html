@@ -7,6 +7,11 @@
 <meta name="theme-color" content="#0a0a0a" />
 <link rel="manifest" href="manifest.json" />
 
+<!-- Promise résolue quand le SDK Firebase est chargé (les modules sont différés) -->
+<script>
+  window._firebaseReady = new Promise((resolve) => { window._resolveFirebaseReady = resolve; });
+</script>
+
 <!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -15,6 +20,7 @@
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   window._firebaseModules = { initializeApp, getFirestore, collection, doc, setDoc, onSnapshot, getDocs };
+  window._resolveFirebaseReady();
 </script>
 <script src="firebase-config.js"></script>
 
@@ -638,6 +644,8 @@ function changeName() {
 async function initFirebase() {
   if (typeof FIREBASE_ENABLED === "undefined" || !FIREBASE_ENABLED) return;
   try {
+    // Attend que les modules Firebase (chargés en différé) soient prêts
+    await window._firebaseReady;
     const { initializeApp, getFirestore } = window._firebaseModules;
     const app = initializeApp(FIREBASE_CONFIG);
     db = getFirestore(app);
