@@ -892,6 +892,28 @@ async function requestNotifications() {
     updateNotifBtn(true);
     localStorage.setItem("wc2026_notif", "granted");
     showToast("🔔 Notifications activées ! Tu seras prévenu la veille de chaque match.");
+  } else if (perm === "denied") {
+    showToast("🔕 Notifications bloquées. Tu peux les réactiver dans les réglages du navigateur.");
+  }
+}
+
+// Active les notifs par défaut : demande la permission dès l'ouverture
+// (les navigateurs exigent ce consentement, on ne peut pas le contourner)
+async function autoEnableNotifications() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "granted") {
+    updateNotifBtn(true);
+    localStorage.setItem("wc2026_notif", "granted");
+    scheduleNotifications();
+  } else if (Notification.permission === "default") {
+    // Demande automatique au chargement
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      updateNotifBtn(true);
+      localStorage.setItem("wc2026_notif", "granted");
+      scheduleNotifications();
+      showToast("🔔 Notifications activées ! Tu seras prévenu la veille de chaque match.");
+    }
   }
 }
 
@@ -968,7 +990,7 @@ function setupNameModal() {
     document.getElementById("name-modal").classList.add("hidden");
     updateIdentityBar();
     renderMatches();
-    if (localStorage.getItem("wc2026_notif") === "granted") scheduleNotifications();
+    autoEnableNotifications();
   }
 
   btn.addEventListener("click", confirm);
@@ -993,10 +1015,7 @@ async function registerSW() {
 
   if (initUser()) {
     renderMatches();
-    if (localStorage.getItem("wc2026_notif") === "granted") {
-      updateNotifBtn(true);
-      scheduleNotifications();
-    }
+    autoEnableNotifications();
   }
 })();
 </script>
