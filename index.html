@@ -2185,6 +2185,43 @@ async function placeBet(matchId) {
   renderLeaderboard();
 }
 
+// Règle les paris encore ouverts sur un match dont le résultat est déjà enregistré.
+// Utile quand le résultat a été sauvegardé mais que les paris n'ont pas été traités
+// (race condition au chargement : bets[] était vide quand auto-settle a tourné).
+async function settleOpenBets(matchId) {
+  const res = results[matchId];
+  if (!res?.settled) { showToast("Aucun résultat enregistré pour ce match."); return; }
+  if (!db) { showToast("Mode démo."); return; }
+
+  const matchBets = bets[matchId] || {};
+  const openBets = Object.entries(matchBets).filter(([, b]) => b.status === "open");
+  if (!openBets.length) { showToast("Aucun pari en attente pour ce match."); return; }
+
+  try {
+    const { doc, setDoc, runTransaction } = window._firebaseModules;
+    let settled = 0;
+    for (const [betId, bet] of openBets) {
+      const won = betWins(bet, res);
+      if (won) {
+        await runTransaction(db, async (tx) => {
+          const uref = doc(db, "users", bet.userId);
+          const usnap = await tx.get(uref);
+          const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+          tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
+        });
+      }
+      await setDoc(doc(db, "matches", matchId, "bets", betId), { status: won ? "won" : "lost" }, { merge: true });
+      settled++;
+    }
+    showToast(`✅ ${settled} pari(s) réglé(s) — gains crédités !`);
+    renderMatchBetting(matchId);
+    renderLeaderboard();
+  } catch (err) {
+    console.error("settleOpenBets error:", err);
+    showToast("Erreur lors du règlement des paris.");
+  }
+}
+
 // ── Formulaire de résultat (organisateur) ──────────────────
 function openSettleForm(matchId) {
   const el = document.getElementById(`settle-form-${matchId}`);
@@ -2997,7 +3034,12 @@ function _renderAdminDashboard(el) {
 
     if (!arr.length) return;
     totalBets += arr.length;
-    betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}${settled ? " ✅" : ""}</div>`;
+    const openCount = arr.filter((b) => b.status === "open").length;
+    // Match settled but bets still open → race condition bug, show fix button
+    const needsRettle = settled && openCount > 0;
+    betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}${settled ? " ✅" : ""}
+      ${needsRettle ? `<button class="admin-reprice" style="background:#ef4444" onclick="settleOpenBets('${m.id}').then(()=>renderAdminDashboard())">⚠️ Régler ${openCount} pari(s) en attente</button>` : ""}
+    </div>`;
     arr.forEach((b) => {
       const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
       betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</div>`;
@@ -3039,12 +3081,19 @@ function _renderAdminDashboard(el) {
   if (initUser()) {
     renderMatches();
     autoEnableNotifications();
-    // Au chargement, tente de régler automatiquement les matchs passés non réglés
-    // (au cas où personne n'avait l'app ouverte quand le match s'est terminé)
+    // Au chargement : règle les matchs passés non réglés + corrige les paris en attente
+    // sur des matchs déjà réglés (race condition : bets[] vide lors du premier auto-settle)
     setTimeout(async () => {
       await refreshLiveScores(false);
-      MATCHES.filter((m) => !m.ceremony && isPast(m) && !results[m.id]?.settled)
-        .forEach((m) => autoSettleFromLive(m.id));
+      MATCHES.filter((m) => !m.ceremony && isPast(m)).forEach((m) => {
+        if (!results[m.id]?.settled) {
+          autoSettleFromLive(m.id);
+        } else {
+          // Résultat déjà là mais des paris sont encore ouverts → on les règle
+          const openBets = Object.values(bets[m.id] || {}).filter((b) => b.status === "open");
+          if (openBets.length) settleOpenBets(m.id);
+        }
+      });
     }, 3000);
   }
 })();
