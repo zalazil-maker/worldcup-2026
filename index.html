@@ -196,6 +196,30 @@ header p {
 }
 #notif-btn:hover { background: rgba(201,162,39,.22); }
 #notif-btn.granted { background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); color: var(--green); }
+#notif-btn:not(.granted) { animation: notifPulse 2s ease-in-out infinite; }
+@keyframes notifPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(201,162,39,.4); }
+  50% { box-shadow: 0 0 0 6px rgba(201,162,39,0); }
+}
+
+/* ── Bannière d'annonce (broadcast) ───────────────────────── */
+.broadcast-banner {
+  display: flex; align-items: center; gap: 12px;
+  margin: 14px 16px 0; padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(201,162,39,.22), rgba(201,162,39,.08));
+  border: 1px solid var(--gold); border-radius: 12px;
+  animation: bannerIn .35s ease;
+}
+.broadcast-banner.hidden { display: none; }
+@keyframes bannerIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.broadcast-banner-icon { font-size: 1.6rem; flex-shrink: 0; }
+.broadcast-banner-text { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: .9rem; line-height: 1.35; }
+.broadcast-banner-text strong { color: var(--gold-light); }
+.broadcast-banner-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 1.1rem; cursor: pointer; flex-shrink: 0; padding: 2px 6px;
+}
+.broadcast-banner-close:hover { color: var(--text); }
 
 /* ── Main content ─────────────────────────────────────────── */
 main {
@@ -847,6 +871,16 @@ footer strong { color: var(--gold-light); }
   </div>
 </div>
 
+<!-- Broadcast banner (annonce de l'organisateur) -->
+<div id="broadcast-banner" class="broadcast-banner hidden">
+  <div class="broadcast-banner-icon">📣</div>
+  <div class="broadcast-banner-text">
+    <strong id="broadcast-banner-title"></strong>
+    <span id="broadcast-banner-body"></span>
+  </div>
+  <button class="broadcast-banner-close" onclick="dismissBanner()" aria-label="Fermer">✕</button>
+</div>
+
 <!-- Main -->
 <main>
   <div class="section-title">🏆 Classement des parieurs</div>
@@ -1449,17 +1483,38 @@ async function showLocalNotification(title, body, tag) {
   try { new Notification(title, { body, tag }); return true; } catch (_) { return false; }
 }
 
+let _bannerTs = 0;
+function showBanner(title, body, ts) {
+  _bannerTs = ts;
+  const el = document.getElementById("broadcast-banner");
+  if (!el) return;
+  document.getElementById("broadcast-banner-title").textContent = title;
+  document.getElementById("broadcast-banner-body").textContent = body || "";
+  el.classList.remove("hidden");
+}
+function dismissBanner() {
+  const el = document.getElementById("broadcast-banner");
+  if (el) el.classList.add("hidden");
+  if (_bannerTs) localStorage.setItem("wc2026_banner_dismissed", String(_bannerTs));
+}
+
 function subscribeBroadcast() {
   if (!db) return;
   const { doc, onSnapshot } = window._firebaseModules;
   onSnapshot(doc(db, "broadcast", "latest"), (snap) => {
     if (!snap.exists()) return;
     const { title, body, sentAt } = snap.data();
-    if (!sentAt || sentAt <= _lastBroadcastTs) return;  // déjà vu (persisté)
+    if (!sentAt) return;
+    // La bannière in-app s'affiche toujours pour le DERNIER message (même sans notifs),
+    // tant qu'on ne l'a pas fermée manuellement.
+    if (sentAt > (parseInt(localStorage.getItem("wc2026_banner_dismissed") || "0", 10) || 0)) {
+      showBanner(title, body || "", sentAt);
+    }
+    // La notification système ne se déclenche qu'une fois par appareil et par message.
+    if (sentAt <= _lastBroadcastTs) return;
     const isFirstEver = _lastBroadcastTs === 0;
     _lastBroadcastTs = sentAt;
     localStorage.setItem("wc2026_last_broadcast", String(sentAt));
-    // Tout premier chargement : on ne notifie pas un vieux message > 1h (évite le spam initial)
     if (isFirstEver && (Date.now() - sentAt > 60 * 60 * 1000)) return;
     showLocalNotification(title, body || "", "broadcast-" + sentAt);
     showToast(`🔔 ${title}${body ? " — " + body : ""}`);
@@ -2270,14 +2325,26 @@ async function requestNotifications() {
     return;
   }
   const perm = await Notification.requestPermission();
+  syncNotifState(perm);
   if (perm === "granted") {
     scheduleNotifications();
     updateNotifBtn(true);
     localStorage.setItem("wc2026_notif", "granted");
     showToast("🔔 Notifications activées ! Tu seras prévenu la veille de chaque match.");
   } else if (perm === "denied") {
-    showToast("🔕 Notifications bloquées. Tu peux les réactiver dans les réglages du navigateur.");
+    showToast("🔕 Notifications bloquées. Va dans les réglages du navigateur (ou du téléphone) pour les réautoriser.");
+  } else {
+    showToast("ℹ️ Touche « Autoriser » quand le navigateur le demande pour recevoir les annonces.");
   }
+}
+
+// Met à jour l'état des notifs dans Firestore (visible dans le tableau de bord admin)
+async function syncNotifState(perm) {
+  if (!db || !currentUser) return;
+  try {
+    const { doc, setDoc } = window._firebaseModules;
+    await setDoc(doc(db, "users", currentUser.id), { notif: perm }, { merge: true });
+  } catch (_) {}
 }
 
 // Active les notifs par défaut : demande la permission dès l'ouverture
@@ -2288,15 +2355,20 @@ async function autoEnableNotifications() {
     updateNotifBtn(true);
     localStorage.setItem("wc2026_notif", "granted");
     scheduleNotifications();
+    syncNotifState("granted");
   } else if (Notification.permission === "default") {
-    // Demande automatique au chargement
-    const perm = await Notification.requestPermission();
+    // Tentative auto (ignorée silencieusement par la plupart des navigateurs mobiles,
+    // qui exigent un vrai tap → le bouton 🔔 clignotant sert à ça).
+    const perm = await Notification.requestPermission().catch(() => "default");
+    syncNotifState(perm);
     if (perm === "granted") {
       updateNotifBtn(true);
       localStorage.setItem("wc2026_notif", "granted");
       scheduleNotifications();
       showToast("🔔 Notifications activées ! Tu seras prévenu la veille de chaque match.");
     }
+  } else {
+    syncNotifState(Notification.permission);
   }
 }
 
