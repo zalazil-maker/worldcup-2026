@@ -327,6 +327,23 @@ main {
   margin-left: -6px; flex-shrink: 0;
 }
 .att-loading { font-size: .8rem; color: var(--text-muted); font-style: italic; }
+.att-toggle {
+  background: none; border: none; cursor: pointer;
+  color: var(--gold); font-size: .78rem; font-weight: 600;
+  padding: 2px 6px; border-radius: 6px;
+}
+.att-toggle:hover { background: rgba(201,162,39,.12); }
+.att-detail {
+  width: 100%; margin-top: 4px; display: none;
+  flex-wrap: wrap; gap: 6px;
+}
+.att-detail.open { display: flex; }
+.att-name {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: .78rem; padding: 4px 10px; border-radius: 20px;
+  background: rgba(255,255,255,.05); border: 1px solid var(--card-border);
+}
+.att-name .att-dot { flex-shrink: 0; }
 
 /* ── Vote section ─────────────────────────────────────────── */
 .vote-section {
@@ -1536,6 +1553,17 @@ function buildMatchCard(m) {
 }
 
 // ── Render votes for one match ─────────────────────────────
+// Mémorise quels matchs ont la liste de présence dépliée
+const _attOpen = new Set();
+function toggleAttDetail(matchId) {
+  const el = document.getElementById(`att-detail-${matchId}`);
+  const btn = document.getElementById(`att-toggle-${matchId}`);
+  if (!el) return;
+  const open = el.classList.toggle("open");
+  if (open) { _attOpen.add(matchId); if (btn) btn.textContent = "🙈 Masquer"; }
+  else { _attOpen.delete(matchId); if (btn) btn.textContent = "👁️ Voir qui vient"; }
+}
+
 function renderMatchVotes(matchId) {
   const matchVotes = votes[matchId] || {};
   const coming = Object.values(matchVotes).filter((v) => v.coming === true);
@@ -1548,11 +1576,24 @@ function renderMatchVotes(matchId) {
       .slice(0, 8)
       .map((v) => `<div class="att-avatar" title="${v.name}">${v.name.charAt(0).toUpperCase()}</div>`)
       .join("");
+    const total = coming.length + notComing.length;
+    const comingNames = coming
+      .map((v) => `<span class="att-name"><span class="att-dot yes"></span>${v.name}</span>`).join("");
+    const notComingNames = notComing
+      .map((v) => `<span class="att-name"><span class="att-dot no"></span>${v.name}</span>`).join("");
     attEl.innerHTML = `
       <span class="att-count"><span class="att-dot yes"></span> ${coming.length} présent${coming.length > 1 ? "s" : ""}</span>
       <div class="att-avatars">${avatarsHtml}</div>
       ${notComing.length ? `<span class="att-count" style="margin-left:8px"><span class="att-dot no"></span> ${notComing.length} absent${notComing.length > 1 ? "s" : ""}</span>` : ""}
+      ${total ? `<button class="att-toggle" onclick="toggleAttDetail('${matchId}')" id="att-toggle-${matchId}">👁️ Voir qui vient</button>` : ""}
+      <div class="att-detail" id="att-detail-${matchId}">${comingNames}${notComingNames}</div>
     `;
+    // Garde l'état ouvert/fermé après un re-render
+    if (_attOpen.has(matchId)) {
+      document.getElementById(`att-detail-${matchId}`)?.classList.add("open");
+      const btn = document.getElementById(`att-toggle-${matchId}`);
+      if (btn) btn.textContent = "🙈 Masquer";
+    }
   }
 
   // Vote buttons
