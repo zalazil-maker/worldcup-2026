@@ -223,6 +223,30 @@ header p {
 }
 .broadcast-banner-close:hover { color: var(--text); }
 
+/* ── Bannière de rappel notifications (si désactivées) ────── */
+.notif-reminder {
+  display: flex; align-items: center; gap: 12px;
+  margin: 14px 16px 0; padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(59,130,246,.18), rgba(59,130,246,.06));
+  border: 1px solid var(--blue); border-radius: 12px;
+  animation: bannerIn .35s ease;
+}
+.notif-reminder.hidden { display: none; }
+.notif-reminder-icon { font-size: 1.6rem; flex-shrink: 0; }
+.notif-reminder-text { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: .9rem; line-height: 1.35; }
+.notif-reminder-text strong { color: #93c5fd; }
+.notif-reminder-text small { color: var(--text-muted); font-size: .8rem; }
+.notif-reminder-btn {
+  background: var(--blue); color: #fff; border: none; border-radius: 8px;
+  padding: 8px 14px; font-size: .85rem; font-weight: 600; cursor: pointer; flex-shrink: 0;
+}
+.notif-reminder-btn:hover { filter: brightness(1.1); }
+.notif-reminder-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 1.1rem; cursor: pointer; flex-shrink: 0; padding: 2px 6px;
+}
+.notif-reminder-close:hover { color: var(--text); }
+
 /* ── Main content ─────────────────────────────────────────── */
 main {
   position: relative; z-index: 1;
@@ -893,6 +917,17 @@ footer strong { color: var(--gold-light); }
     <span id="broadcast-banner-body"></span>
   </div>
   <button class="broadcast-banner-close" onclick="dismissBanner()" aria-label="Fermer">✕</button>
+</div>
+
+<!-- Rappel : activer les notifications (affiché si désactivées) -->
+<div id="notif-reminder" class="notif-reminder hidden">
+  <div class="notif-reminder-icon">🔔</div>
+  <div class="notif-reminder-text">
+    <strong>Active les notifications</strong>
+    <span id="notif-reminder-msg">Reçois les annonces du groupe et les rappels de match, même quand l'app est fermée.</span>
+  </div>
+  <button class="notif-reminder-btn" id="notif-reminder-btn" onclick="requestNotifications()">Activer</button>
+  <button class="notif-reminder-close" onclick="dismissNotifReminder()" aria-label="Fermer">✕</button>
 </div>
 
 <!-- Main -->
@@ -2454,8 +2489,10 @@ async function autoEnableNotifications() {
       subscribeToFCM();
       showToast("🔔 Notifications activées ! Tu seras prévenu la veille de chaque match.");
     }
+    updateNotifReminder();
   } else {
     syncNotifState(Notification.permission);
+    updateNotifReminder();
   }
 }
 
@@ -2465,6 +2502,46 @@ function updateNotifBtn(granted) {
     btn.textContent = "✅ Notifications activées";
     btn.classList.add("granted");
   }
+  updateNotifReminder();
+}
+
+function dismissNotifReminder() {
+  const el = document.getElementById("notif-reminder");
+  if (el) el.classList.add("hidden");
+  localStorage.setItem("wc2026_notif_reminder_dismissed", String(Date.now()));
+}
+
+// Affiche un rappel visible tant que les notifications ne sont pas activées.
+// Cas iOS : Safari n'autorise les notifs QUE si l'app est installée (écran d'accueil).
+function updateNotifReminder() {
+  const el = document.getElementById("notif-reminder");
+  if (!el) return;
+  if (!("Notification" in window)) { el.classList.add("hidden"); return; }
+
+  const perm = Notification.permission;
+  if (perm === "granted") { el.classList.add("hidden"); return; }
+
+  // Masqué pendant 24h après une fermeture manuelle (pour ne pas harceler)
+  const dismissed = parseInt(localStorage.getItem("wc2026_notif_reminder_dismissed") || "0", 10) || 0;
+  if (Date.now() - dismissed < 24 * 60 * 60 * 1000) { el.classList.add("hidden"); return; }
+
+  const msgEl = document.getElementById("notif-reminder-msg");
+  const btnEl = document.getElementById("notif-reminder-btn");
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const installed = (typeof isInstalled === "function") ? isInstalled() : false;
+
+  if (isIOS && !installed) {
+    // Sur iPhone, le prompt de notif n'existe pas tant que l'app n'est pas installée.
+    msgEl.textContent = "Sur iPhone : touche « Partager » puis « Sur l'écran d'accueil » pour installer l'app, et tu pourras activer les notifications.";
+    btnEl.style.display = "none";
+  } else if (perm === "denied") {
+    msgEl.textContent = "Les notifications sont bloquées. Va dans les réglages de ton navigateur (ou du téléphone) pour les réautoriser et recevoir les annonces.";
+    btnEl.style.display = "none";
+  } else {
+    msgEl.textContent = "Reçois les annonces du groupe et les rappels de match, même quand l'app est fermée.";
+    btnEl.style.display = "";
+  }
+  el.classList.remove("hidden");
 }
 
 async function scheduleNotifications() {
