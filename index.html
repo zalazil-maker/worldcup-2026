@@ -722,6 +722,13 @@ footer strong { color: var(--gold-light); }
   margin: 22px 0 10px; padding-bottom: 6px;
   border-bottom: 1px solid var(--card-border);
 }
+.admin-reprice {
+  float: right; margin-top: -2px;
+  background: var(--gold); color: var(--dark); border: none;
+  font-size: .72rem; font-weight: 700; padding: 4px 10px;
+  border-radius: 8px; cursor: pointer; text-transform: none; letter-spacing: 0;
+}
+.admin-reprice:hover { opacity: .85; }
 .admin-table-wrap { overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .admin-table th {
@@ -2503,6 +2510,47 @@ async function deletePlayer(uid) {
   }
 }
 
+// ── Recalcule les cotes des paris EN COURS sur les cotes actuelles ──
+// Ne touche pas aux paris déjà réglés (gagné/perdu) ni au solde des joueurs
+// (la mise reste débitée, seul le gain potentiel change).
+async function repriceOpenBets() {
+  if (!db) { showToast("Mode démo : recalcul non synchronisé."); return; }
+  // Compte les paris en cours
+  let openCount = 0;
+  MATCHES.forEach((m) => {
+    if (m.ceremony) return;
+    Object.values(bets[m.id] || {}).forEach((b) => { if (b.status === "open") openCount++; });
+  });
+  if (!openCount) { showToast("Aucun pari en cours à recalculer."); return; }
+  if (!confirm(`Recaler ${openCount} pari(s) en cours sur les cotes actuelles ?\n\nLa cote et le gain potentiel de chaque pari seront mis à jour. Les mises et les paris déjà réglés ne changent pas.`)) return;
+
+  try {
+    const { doc, setDoc } = window._firebaseModules;
+    let updated = 0;
+    for (const m of MATCHES) {
+      if (m.ceremony) continue;
+      if (results[m.id]?.settled) continue;            // match terminé : on n'y touche pas
+      const mb = bets[m.id] || {};
+      const odds = computeOdds(m.id);                  // cotes actuelles (réelles si dispo)
+      for (const [betId, b] of Object.entries(mb)) {
+        if (b.status !== "open") continue;
+        const newOdds = odds?.[b.market]?.[b.selection];
+        if (!newOdds || !isFinite(newOdds)) continue;
+        if (Math.abs(newOdds - b.odds) < 0.001) continue; // déjà à jour
+        const newWin = +(b.stake * newOdds).toFixed(2);
+        await setDoc(doc(db, "matches", m.id, "bets", betId),
+          { odds: newOdds, potentialWin: newWin }, { merge: true });
+        updated++;
+      }
+    }
+    showToast(updated ? `🔄 ${updated} pari(s) recalé(s) sur les cotes actuelles.` : "Tous les paris étaient déjà à jour.");
+    renderAdminDashboard();
+  } catch (err) {
+    console.error(err);
+    showToast("Erreur lors du recalcul des cotes.");
+  }
+}
+
 function fmtDate(ts) {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -2569,7 +2617,9 @@ function _renderAdminDashboard(el) {
   attHtml += `</div>`;
 
   // ── Paris ──
-  let betsHtml = `<div class="admin-section-title">🎰 Paris du groupe</div><div class="admin-bets-list">`;
+  let betsHtml = `<div class="admin-section-title">🎰 Paris du groupe
+    <button class="admin-reprice" onclick="repriceOpenBets()" title="Recaler les paris en cours sur les cotes actuelles">🔄 Recaler les cotes</button>
+    </div><div class="admin-bets-list">`;
   let totalBets = 0;
   MATCHES.filter((m) => !m.ceremony).forEach((m) => {
     const mb = bets[m.id] || {};
