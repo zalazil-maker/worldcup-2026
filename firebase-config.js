@@ -38,3 +38,10 @@ const ODDS_API_KEY = "9d202e2213e8ac55c2d687a820cb9756d272bc78c1533c17814a66898a
 const ODDS_API_LEAGUE = "international-fifa-world-cup";
 const ODDS_API_BOOKMAKER = "Bet365";
 
+// ── Firebase Cloud Messaging — Web Push (notifications app fermée) ──
+// 1. Console Firebase → Paramètres du projet → Cloud Messaging
+// 2. Activer "Cloud Messaging API (Legacy)" → copier la Clé du serveur ci-dessous
+// 3. Onglet "Certificats Web Push" → Générer une paire de clés → copier la clé publique VAPID
+const FCM_SERVER_KEY = "";   // Clé du serveur (legacy) — ex: "AAAAxxx..."
+const FCM_VAPID_KEY  = "";   // Clé publique VAPID      — ex: "BNHxxx..."
+

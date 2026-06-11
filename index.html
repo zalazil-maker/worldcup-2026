@@ -33,8 +33,10 @@
   import {
     getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction, deleteDoc
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
   window._firebaseModules = { initializeApp, getFirestore, collection, doc, setDoc, getDoc, onSnapshot, getDocs, runTransaction, deleteDoc };
+  window._firebaseMessaging = { getMessaging, getToken };
   window._resolveFirebaseReady();
 </script>
 <script src="firebase-config.js"></script>
@@ -1441,8 +1443,8 @@ async function initFirebase() {
     // Attend que les modules Firebase (chargés en différé) soient prêts
     await window._firebaseReady;
     const { initializeApp, getFirestore } = window._firebaseModules;
-    const app = initializeApp(FIREBASE_CONFIG);
-    db = getFirestore(app);
+    window._firebaseApp = initializeApp(FIREBASE_CONFIG);
+    db = getFirestore(window._firebaseApp);
     document.getElementById("setup-banner").classList.add("hidden");
     console.log("Firebase connecté ✓");
   } catch (err) {
@@ -1576,6 +1578,8 @@ async function sendBroadcast() {
     const { doc, setDoc } = window._firebaseModules;
     await setDoc(doc(db, "broadcast", "latest"), { title, body: body || "", sentAt: Date.now() });
     titleEl.value = ""; bodyEl.value = "";
+    // FCM Web Push → atteint aussi les appareils avec l'app fermée
+    sendFCMPush(title, body || "").catch(() => {});
     showToast("📣 Notification envoyée à tout le groupe !");
   } catch (err) {
     console.error(err);
@@ -2387,6 +2391,7 @@ async function requestNotifications() {
   syncNotifState(perm);
   if (perm === "granted") {
     scheduleNotifications();
+    subscribeToFCM();
     updateNotifBtn(true);
     localStorage.setItem("wc2026_notif", "granted");
     showToast("🔔 Notifications activées ! Tu seras prévenu la veille de chaque match.");
@@ -2406,6 +2411,58 @@ async function syncNotifState(perm) {
   } catch (_) {}
 }
 
+// ── FCM Web Push — abonne cet appareil pour recevoir les notifs app fermée ──
+async function subscribeToFCM() {
+  const vapidKey = (typeof FCM_VAPID_KEY !== "undefined") ? FCM_VAPID_KEY : "";
+  if (!vapidKey || !db || !currentUser || !window._firebaseApp || !window._firebaseMessaging) return;
+  if (!("serviceWorker" in navigator) || Notification.permission !== "granted") return;
+  try {
+    const { getMessaging, getToken } = window._firebaseMessaging;
+    const messaging = getMessaging(window._firebaseApp);
+    const swReg = await navigator.serviceWorker.ready;
+    const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg });
+    if (token) {
+      const { doc, setDoc } = window._firebaseModules;
+      await setDoc(doc(db, "users", currentUser.id), { fcmToken: token }, { merge: true });
+      console.log("FCM token enregistré ✓");
+    }
+  } catch (err) {
+    console.warn("FCM subscribe error:", err);
+  }
+}
+
+// Envoie une notification Web Push FCM à tous les appareils abonnés (app fermée incluse)
+async function sendFCMPush(title, body) {
+  const serverKey = (typeof FCM_SERVER_KEY !== "undefined") ? FCM_SERVER_KEY : "";
+  if (!serverKey || !db) return;
+  try {
+    const { collection, getDocs } = window._firebaseModules;
+    const snap = await getDocs(collection(db, "users"));
+    const tokens = [];
+    snap.forEach((d) => { const t = d.data().fcmToken; if (t) tokens.push(t); });
+    if (!tokens.length) return;
+    // Envoi par lots de 500 (limite FCM legacy)
+    for (let i = 0; i < tokens.length; i += 500) {
+      const batch = tokens.slice(i, i + 500);
+      await fetch("https://fcm.googleapis.com/fcm/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `key=${serverKey}`,
+        },
+        body: JSON.stringify({
+          registration_ids: batch,
+          notification: { title, body },
+          data: { title, body, tag: "fcm-broadcast" },
+        }),
+      });
+    }
+    console.log(`FCM push envoyé à ${tokens.length} appareils ✓`);
+  } catch (err) {
+    console.warn("FCM push error:", err);
+  }
+}
+
 // Active les notifs par défaut : demande la permission dès l'ouverture
 // (les navigateurs exigent ce consentement, on ne peut pas le contourner)
 async function autoEnableNotifications() {
@@ -2415,6 +2472,7 @@ async function autoEnableNotifications() {
     localStorage.setItem("wc2026_notif", "granted");
     scheduleNotifications();
     syncNotifState("granted");
+    subscribeToFCM();
   } else if (Notification.permission === "default") {
     // Tentative auto (ignorée silencieusement par la plupart des navigateurs mobiles,
     // qui exigent un vrai tap → le bouton 🔔 clignotant sert à ça).
@@ -2424,6 +2482,7 @@ async function autoEnableNotifications() {
       updateNotifBtn(true);
       localStorage.setItem("wc2026_notif", "granted");
       scheduleNotifications();
+      subscribeToFCM();
       showToast("🔔 Notifications activées ! Tu seras prévenu la veille de chaque match.");
     }
   } else {
