@@ -30,8 +30,11 @@ const FIREBASE_ENABLED = true;
 // Sert à ouvrir le tableau de bord admin (liste des joueurs, présences, paris).
 const ADMIN_PIN = "2026";
 
-// ── Clé API api-football.com (stats live : possession, tirs cadrés) ──
-// Gratuit : 100 requêtes/jour, inscription en 30 sec → https://dashboard.api-football.com/register
-// Laisse vide "" pour utiliser uniquement le modèle Poisson (cotes live sans stats).
-const API_FOOTBALL_KEY = "";
+// ── Clé API odds-api.io (vraies cotes Bet365 + live in-play) ──
+// Gratuit → https://odds-api.io/  ·  100 requêtes / fenêtre
+// Donne les vraies cotes du bookmaker, qui bougent en direct quand un but est marqué.
+// Laisse vide "" pour utiliser le modèle Poisson interne (sans clé).
+const ODDS_API_KEY = "9d202e2213e8ac55c2d687a820cb9756d272bc78c1533c17814a66898afd4601";
+const ODDS_API_LEAGUE = "international-fifa-world-cup";
+const ODDS_API_BOOKMAKER = "Bet365";
 

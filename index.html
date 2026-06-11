@@ -1021,7 +1021,8 @@ function matchMinute(matchId) {
 }
 
 // Probabilités temps réel via Poisson : score actuel + minute + niveau des équipes + stats
-let liveStats = {};  // { matchId: { homePoss, homeSoT, awaySoT } }
+let liveStats = {};  // { matchId: { homePoss, homeSoT, awaySoT } } — modèle Poisson
+let liveOdds = {};   // { matchId: { result:{home,draw,away}, totals:{over,under}, live } } — vraies cotes
 
 function inPlayProbs(matchId, hg, ag, minute) {
   const m = MATCHES.find((x) => x.id === matchId);
@@ -1094,18 +1095,22 @@ function computeOdds(matchId) {
   const ls = liveScores[matchId];
   const isLive = ls && LIVE_STATUSES.includes(ls.status);
 
-  if (isLive) {
+  // Priorité 1 : vraies cotes bookmaker (odds-api.io) — déjà in-play, bougent à chaque but
+  const real = liveOdds[matchId];
+  if (real && (real.result || real.totals)) {
+    if (real.result) base.result = real.result;
+    if (real.totals) base.totals = real.totals;
+  } else if (isLive) {
+    // Priorité 2 : modèle Poisson interne (si pas de cotes réelles)
     const minute = matchMinute(matchId) ?? 45;
     const hg = parseInt(ls.home, 10) || 0;
     const ag = parseInt(ls.away, 10) || 0;
     const live = inPlayProbs(matchId, hg, ag, minute);
     if (live) {
       base.result = live;
-      // Recalcule over/under selon les buts déjà marqués + rythme restant
       const totalSoFar = hg + ag;
       const rem = Math.max(0, 93 - minute) / 90;
       const expectedMore = 2.6 * rem;
-      // P(over 2.5) = 1 - P(total ≤ 2) = 1 - Σ P(add_goals = k, k ≤ 2 - totalSoFar)
       const need = Math.max(0, 3 - totalSoFar);
       const pOver = totalSoFar >= 3 ? 0.97 : clamp(1 - poissonCDF(need - 1, expectedMore), 0.03, 0.97);
       base.totals = { over: pOver, under: 1 - pOver };
@@ -1121,78 +1126,98 @@ function computeOdds(matchId) {
   return odds;
 }
 
-// ── Stats live via api-football.com (gratuit, 100 req/jour) ──
-// Inscription : https://dashboard.api-football.com/register
-// Ajouter la clé dans firebase-config.js : const API_FOOTBALL_KEY = "xxx";
-let _apifbFixtures = {};   // { matchId: fixtureId }
+// ── Vraies cotes Bet365 via odds-api.io (live in-play) ───────
+// Clé dans firebase-config.js : ODDS_API_KEY. CORS autorisé (*).
+// Les cotes du bookmaker bougent automatiquement en direct quand un but tombe.
+const ODDS_API_BASE = "https://api.odds-api.io/v3";
+let _oddsEventMap = {};   // { matchId: eventId }
+let _oddsMapTried = false;
 
-async function fetchLiveStats() {
-  if (!window.API_FOOTBALL_KEY) return;
-  const today = new Date().toISOString().slice(0, 10);
-  const liveMatches = MATCHES.filter((m) => {
-    const ls = liveScores[m.id];
-    return ls && LIVE_STATUSES.includes(ls.status);
+// Convertit des cotes décimales en probabilités normalisées (retire la marge)
+function oddsToProbs(obj) {
+  const inv = {};
+  let sum = 0;
+  for (const k in obj) {
+    const o = parseFloat(obj[k]);
+    if (o > 1) { inv[k] = 1 / o; sum += inv[k]; }
+  }
+  if (sum <= 0) return null;
+  const out = {};
+  for (const k in inv) out[k] = inv[k] / sum;
+  return out;
+}
+
+// Étape 1 : associe nos matchs aux eventId de l'API (1 requête, mise en cache)
+async function buildOddsEventMap() {
+  if (_oddsMapTried && Object.keys(_oddsEventMap).length) return;
+  _oddsMapTried = true;
+  const key = window.ODDS_API_KEY;
+  const league = window.ODDS_API_LEAGUE || "international-fifa-world-cup";
+  const r = await fetch(`${ODDS_API_BASE}/events?sport=football&league=${league}&apiKey=${key}`);
+  if (!r.ok) return;
+  const events = await r.json();
+  const norm2 = (s) => norm(s);
+  const m2 = (a, b) => a.includes(b) || b.includes(a);
+  MATCHES.filter((m) => !m.ceremony).forEach((m) => {
+    const mh = norm2(NAME_MAP[m.home.name] || m.home.name);
+    const ma = norm2(NAME_MAP[m.away.name] || m.away.name);
+    const ev = events.find((e) => {
+      const h = norm2(e.home), a = norm2(e.away);
+      return (m2(h, mh) && m2(a, ma)) || (m2(h, ma) && m2(a, mh));
+    });
+    if (ev) _oddsEventMap[m.id] = { id: ev.id, flip: !m2(norm2(ev.home), mh) };
   });
-  if (!liveMatches.length) return;
+}
 
+// Étape 2 : récupère les cotes (1 requête /odds/multi, jusqu'à 10 matchs)
+async function fetchLiveOdds() {
+  const key = window.ODDS_API_KEY;
+  if (!key) return;
   try {
-    // 1. Récupère les fixtures live WC du jour (1 requête)
-    if (!Object.keys(_apifbFixtures).length) {
-      const r = await fetch(
-        `https://v3.football.api-sports.io/fixtures?league=1&season=2026&date=${today}&status=1H-2H-HT`,
-        { headers: { "x-apisports-key": window.API_FOOTBALL_KEY } }
-      );
-      if (!r.ok) return;
-      const data = await r.json();
-      (data.response || []).forEach((fx) => {
-        const hNorm = fx.teams.home.name.toLowerCase();
-        const aNorm = fx.teams.away.name.toLowerCase();
-        const ourMatch = MATCHES.find((m) => {
-          const mh = (NAME_MAP[m.home.name] || m.home.name).toLowerCase();
-          const ma = (NAME_MAP[m.away.name] || m.away.name).toLowerCase();
-          return (mh.includes(hNorm) || hNorm.includes(mh)) &&
-                 (ma.includes(aNorm) || aNorm.includes(ma));
-        });
-        if (ourMatch) _apifbFixtures[ourMatch.id] = fx.fixture.id;
-      });
-    }
+    await buildOddsEventMap();
+    const entries = Object.entries(_oddsEventMap);
+    if (!entries.length) return;
 
-    // 2. Récupère les stats de chaque match live (1 requête par match)
-    for (const m of liveMatches) {
-      const fxId = _apifbFixtures[m.id];
-      if (!fxId) continue;
-      const r = await fetch(
-        `https://v3.football.api-sports.io/fixtures/statistics?fixture=${fxId}`,
-        { headers: { "x-apisports-key": window.API_FOOTBALL_KEY } }
-      );
-      if (!r.ok) continue;
-      const data = await r.json();
-      const teams = data.response || [];
-      if (teams.length < 2) continue;
+    const bk = window.ODDS_API_BOOKMAKER || "Bet365";
+    const ids = entries.map(([, v]) => v.id).slice(0, 10).join(",");
+    const r = await fetch(`${ODDS_API_BASE}/odds/multi?eventIds=${ids}&bookmakers=${bk}&apiKey=${key}`);
+    if (!r.ok) return;
+    const data = await r.json();
 
-      const parse = (teamStats, key) => {
-        const v = teamStats.statistics?.find((s) => s.type === key)?.value;
-        if (v == null) return null;
-        if (typeof v === "string" && v.endsWith("%")) return parseFloat(v);
-        return typeof v === "number" ? v : null;
-      };
+    data.forEach((ev) => {
+      const entry = entries.find(([, v]) => v.id === ev.id);
+      if (!entry) return;
+      const matchId = entry[0];
+      const flip = entry[1].flip;
+      const markets = ev.bookmakers?.[bk];
+      if (!markets) return;
 
-      // Vérifier quelle équipe est domicile dans l'API vs dans nos données
-      const apiHomeName = teams[0].team.name.toLowerCase();
-      const ourHomeName = (NAME_MAP[m.home.name] || m.home.name).toLowerCase();
-      const flip = !apiHomeName.includes(ourHomeName) && !ourHomeName.includes(apiHomeName);
+      const out = {};
 
-      const homeTeam = flip ? teams[1] : teams[0];
-      const awayTeam = flip ? teams[0] : teams[1];
+      // 1X2 (ML)
+      const ml = markets.find((mk) => mk.name === "ML")?.odds?.[0];
+      if (ml && ml.home && ml.away) {
+        const p = oddsToProbs({ home: ml.home, draw: ml.draw, away: ml.away });
+        if (p) out.result = flip
+          ? { home: p.away, draw: p.draw, away: p.home }
+          : { home: p.home, draw: p.draw, away: p.away };
+      }
 
-      liveStats[m.id] = {
-        homePoss:  parse(homeTeam, "Ball Possession") ?? 50,
-        homeSoT:   parse(homeTeam, "Shots on Goal")   ?? 0,
-        awaySoT:   parse(awayTeam, "Shots on Goal")   ?? 0,
-      };
-      renderMatchBetting(m.id);
-    }
-  } catch (_) { /* fail silently */ }
+      // Over/Under 2.5 buts
+      const tot = (markets.find((mk) => mk.name === "Goals Over/Under")?.odds || [])
+        .find((o) => Math.abs(o.hdp - 2.5) < 0.01);
+      if (tot && tot.over && tot.under) {
+        const p = oddsToProbs({ over: tot.over, under: tot.under });
+        if (p) out.totals = p;
+      }
+
+      if (out.result || out.totals) {
+        out.live = (ev.status && ev.status !== "pending");
+        liveOdds[matchId] = out;
+        renderMatchBetting(matchId);
+      }
+    });
+  } catch (_) { /* repli silencieux sur le modèle Poisson/Elo */ }
 }
 
 const START_BALANCE = 100; // € fictifs au départ
@@ -1717,10 +1742,17 @@ function renderMatchBetting(matchId) {
       const draft = betDraft[matchId];
       const ls = liveScores[matchId];
       const isLive = ls && LIVE_STATUSES.includes(ls.status);
-      const hasStats = !!liveStats[matchId];
-      const oddsSource = isLive
-        ? (hasStats ? "· cotes EN DIRECT — score + possession + tirs cadrés 🔴" : "· cotes EN DIRECT — modèle Poisson (score + minute) 🔴")
-        : "· cotes pré-match — niveau des équipes + paris du groupe 📈";
+      const real = liveOdds[matchId];
+      let oddsSource;
+      if (real) {
+        oddsSource = (isLive || real.live)
+          ? `· vraies cotes ${window.ODDS_API_BOOKMAKER || "Bet365"} EN DIRECT 🔴`
+          : `· vraies cotes ${window.ODDS_API_BOOKMAKER || "Bet365"} + paris du groupe 📊`;
+      } else if (isLive) {
+        oddsSource = "· cotes EN DIRECT — modèle Poisson (score + minute) 🔴";
+      } else {
+        oddsSource = "· cotes pré-match — niveau des équipes + paris du groupe 📈";
+      }
       html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">${oddsSource}</span></div>`;
       // Marchés
       ["result", "totals", "firstScorer"].forEach((market) => {
@@ -2027,9 +2059,10 @@ function renderLiveScore(matchId) {
 
 function startLivePolling() {
   refreshLiveScores(false);
+  fetchLiveOdds();                                          // vraies cotes au chargement
   setInterval(async () => {
     await refreshLiveScores(true);
-    fetchLiveStats();   // stats possession/tirs pour les matchs en cours
+    fetchLiveOdds();   // vraies cotes Bet365 (bougent en direct à chaque but)
   }, 5 * 60 * 1000);
 }
 
