@@ -1578,8 +1578,8 @@ async function sendBroadcast() {
     const { doc, setDoc } = window._firebaseModules;
     await setDoc(doc(db, "broadcast", "latest"), { title, body: body || "", sentAt: Date.now() });
     titleEl.value = ""; bodyEl.value = "";
-    // FCM Web Push → atteint aussi les appareils avec l'app fermée
-    sendFCMPush(title, body || "").catch(() => {});
+    // Une Cloud Function détecte cette écriture et envoie le Web Push FCM
+    // à tous les appareils abonnés (y compris app fermée).
     showToast("📣 Notification envoyée à tout le groupe !");
   } catch (err) {
     console.error(err);
@@ -2431,37 +2431,6 @@ async function subscribeToFCM() {
   }
 }
 
-// Envoie une notification Web Push FCM à tous les appareils abonnés (app fermée incluse)
-async function sendFCMPush(title, body) {
-  const serverKey = (typeof FCM_SERVER_KEY !== "undefined") ? FCM_SERVER_KEY : "";
-  if (!serverKey || !db) return;
-  try {
-    const { collection, getDocs } = window._firebaseModules;
-    const snap = await getDocs(collection(db, "users"));
-    const tokens = [];
-    snap.forEach((d) => { const t = d.data().fcmToken; if (t) tokens.push(t); });
-    if (!tokens.length) return;
-    // Envoi par lots de 500 (limite FCM legacy)
-    for (let i = 0; i < tokens.length; i += 500) {
-      const batch = tokens.slice(i, i + 500);
-      await fetch("https://fcm.googleapis.com/fcm/send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `key=${serverKey}`,
-        },
-        body: JSON.stringify({
-          registration_ids: batch,
-          notification: { title, body },
-          data: { title, body, tag: "fcm-broadcast" },
-        }),
-      });
-    }
-    console.log(`FCM push envoyé à ${tokens.length} appareils ✓`);
-  } catch (err) {
-    console.warn("FCM push error:", err);
-  }
-}
 
 // Active les notifs par défaut : demande la permission dès l'ouverture
 // (les navigateurs exigent ce consentement, on ne peut pas le contourner)
