@@ -1427,7 +1427,8 @@ function subscribeBalances() {
 }
 
 // ── Notifications admin (broadcast) ───────────────────────
-let _lastBroadcastTs = 0;   // évite de re-notifier au rechargement
+// Persisté en localStorage → ne re-notifie pas le même message à chaque refresh
+let _lastBroadcastTs = parseInt(localStorage.getItem("wc2026_last_broadcast") || "0", 10) || 0;
 
 // Affiche une notification locale de façon robuste (SW prêt, sinon API native)
 async function showLocalNotification(title, body, tag) {
@@ -1454,12 +1455,12 @@ function subscribeBroadcast() {
   onSnapshot(doc(db, "broadcast", "latest"), (snap) => {
     if (!snap.exists()) return;
     const { title, body, sentAt } = snap.data();
-    if (!sentAt || sentAt <= _lastBroadcastTs) return;  // déjà vu
-    const isFirstLoad = _lastBroadcastTs === 0;
+    if (!sentAt || sentAt <= _lastBroadcastTs) return;  // déjà vu (persisté)
+    const isFirstEver = _lastBroadcastTs === 0;
     _lastBroadcastTs = sentAt;
-    // À la 1ère charge, on ne notifie pas les vieux messages > 1h (évite le spam au reload)
-    const isStale = isFirstLoad && (Date.now() - sentAt > 60 * 60 * 1000);
-    if (isStale) return;
+    localStorage.setItem("wc2026_last_broadcast", String(sentAt));
+    // Tout premier chargement : on ne notifie pas un vieux message > 1h (évite le spam initial)
+    if (isFirstEver && (Date.now() - sentAt > 60 * 60 * 1000)) return;
     showLocalNotification(title, body || "", "broadcast-" + sentAt);
     showToast(`🔔 ${title}${body ? " — " + body : ""}`);
   });
