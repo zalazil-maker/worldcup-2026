@@ -990,24 +990,126 @@ function blendWithBets(probs, stakeMap) {
   return out;
 }
 
-// Cotes finales (force des équipes + dynamique selon les paris en cours)
+// ── Modèle in-play Poisson ────────────────────────────────
+// Table factorielles pré-calculées (0..12)
+const FACT = [1,1,2,6,24,120,720,5040,40320,362880,3628800,39916800,479001600];
+function poisson(lambda, k) {
+  if (k < 0 || k > 12) return 0;
+  return Math.exp(-lambda) * Math.pow(lambda, k) / FACT[k];
+}
+function poissonCDF(k, lambda) {
+  let c = 0;
+  for (let i = 0; i <= Math.floor(k); i++) c += poisson(lambda, i);
+  return Math.min(c, 1);
+}
+
+// Estime la minute du match à partir du statut + heure de coup d'envoi
+function matchMinute(matchId) {
+  const ls = liveScores[matchId];
+  if (!ls) return null;
+  const m = MATCHES.find((x) => x.id === matchId);
+  if (!m) return null;
+  // TheSportsDB renvoie parfois la minute dans strProgress
+  if (ls.progress && /^\d+$/.test(ls.progress)) return parseInt(ls.progress, 10);
+  const elapsed = (Date.now() - matchDateTime(m).getTime()) / 60000;
+  if (ls.status === "1H") return clamp(Math.round(elapsed), 1, 45);
+  if (ls.status === "HT") return 45;
+  if (ls.status === "2H") return clamp(Math.round(elapsed - 15), 46, 90);
+  if (ls.status === "ET") return clamp(Math.round(elapsed - 20), 91, 120);
+  if (ls.status === "FT") return 90;
+  return null;
+}
+
+// Probabilités temps réel via Poisson : score actuel + minute + niveau des équipes + stats
+let liveStats = {};  // { matchId: { homePoss, homeSoT, awaySoT } }
+
+function inPlayProbs(matchId, hg, ag, minute) {
+  const m = MATCHES.find((x) => x.id === matchId);
+  if (!m) return null;
+  const ra = TEAM_RATINGS[m.home.name] ?? DEFAULT_RATING;
+  const rb = TEAM_RATINGS[m.away.name] ?? DEFAULT_RATING;
+
+  // Taux de base : WC = ~2.6 buts/90 min, répartis selon les forces
+  const totalRate = 2.6 / 90;
+  const sr = Math.pow(10, (ra - rb) / 480);   // strength ratio
+  let lH = totalRate * sr / (sr + 1);
+  let lA = totalRate       / (sr + 1);
+
+  // Multiplicateurs pression : l'équipe qui perd attaque plus fort
+  const diff = hg - ag;
+  const press = (behind) => {
+    if (behind >= 2)  return 1.6;   // désespéré
+    if (behind === 1) return 1.28;  // pousse
+    if (behind === -1) return 0.82; // protège son avance
+    if (behind <= -2)  return 0.68; // très défensif
+    return 1.0;
+  };
+  lH *= press(-diff);   // domicile derrière si diff < 0
+  lA *= press(diff);    // extérieur derrière si diff > 0
+
+  // Ajustement dynamique via stats réelles (api-football.com si clé fournie)
+  const st = liveStats[matchId];
+  if (st) {
+    const total = (st.homeSoT || 0) + (st.awaySoT || 0);
+    if (total > 2) {
+      // Blend 50/50 entre taux calculé et momentum par tirs cadrés + possession
+      const homeMom = 0.6 * st.homeSoT / total + 0.4 * (st.homePoss || 50) / 100;
+      const awayMom = 0.6 * st.awaySoT / total + 0.4 * (1 - (st.homePoss || 50) / 100);
+      lH = 0.5 * lH + 0.5 * lH * homeMom * 2;
+      lA = 0.5 * lA + 0.5 * lA * awayMom * 2;
+    }
+  }
+
+  // Buts attendus restants
+  const rem = Math.max(0, 93 - minute);
+  const lambdaH = lH * rem;
+  const lambdaA = lA * rem;
+
+  let pH = 0, pD = 0, pA = 0;
+  for (let i = 0; i <= 9; i++) {
+    for (let j = 0; j <= 9; j++) {
+      const p = poisson(lambdaH, i) * poisson(lambdaA, j);
+      const fh = hg + i, fa = ag + j;
+      if (fh > fa) pH += p;
+      else if (fh === fa) pD += p;
+      else pA += p;
+    }
+  }
+  const s = pH + pD + pA || 1;
+  return { home: pH / s, draw: pD / s, away: pA / s };
+}
+
+// Cotes finales — pré-match = Elo + groupe, live = Poisson + stats
 function computeOdds(matchId) {
   const m = MATCHES.find((x) => x.id === matchId);
   const base = baseProbs(m);
   const matchBets = bets[matchId] || {};
 
-  // Cumul des mises par marché/sélection
   const stakes = { result: {}, totals: {}, firstScorer: {} };
   Object.values(matchBets).forEach((b) => {
     if (!stakes[b.market]) return;
     stakes[b.market][b.selection] = (stakes[b.market][b.selection] || 0) + b.stake;
   });
 
-  // Si des cotes bookmakers sont disponibles, les utiliser comme base pour le résultat et les totaux
-  const ext = liveOdds[matchId];
-  if (ext) {
-    if (ext.result) base.result = ext.result;
-    if (ext.totals) base.totals = ext.totals;
+  const ls = liveScores[matchId];
+  const isLive = ls && LIVE_STATUSES.includes(ls.status);
+
+  if (isLive) {
+    const minute = matchMinute(matchId) ?? 45;
+    const hg = parseInt(ls.home, 10) || 0;
+    const ag = parseInt(ls.away, 10) || 0;
+    const live = inPlayProbs(matchId, hg, ag, minute);
+    if (live) {
+      base.result = live;
+      // Recalcule over/under selon les buts déjà marqués + rythme restant
+      const totalSoFar = hg + ag;
+      const rem = Math.max(0, 93 - minute) / 90;
+      const expectedMore = 2.6 * rem;
+      // P(over 2.5) = 1 - P(total ≤ 2) = 1 - Σ P(add_goals = k, k ≤ 2 - totalSoFar)
+      const need = Math.max(0, 3 - totalSoFar);
+      const pOver = totalSoFar >= 3 ? 0.97 : clamp(1 - poissonCDF(need - 1, expectedMore), 0.03, 0.97);
+      base.totals = { over: pOver, under: 1 - pOver };
+    }
   }
 
   const odds = {};
@@ -1019,83 +1121,78 @@ function computeOdds(matchId) {
   return odds;
 }
 
-// ── Cotes bookmakers via The Odds API ─────────────────────
-let liveOdds = {};   // { matchId: { result: {home,draw,away}, totals: {over,under} } }
-let _oddsFetched = false;
+// ── Stats live via api-football.com (gratuit, 100 req/jour) ──
+// Inscription : https://dashboard.api-football.com/register
+// Ajouter la clé dans firebase-config.js : const API_FOOTBALL_KEY = "xxx";
+let _apifbFixtures = {};   // { matchId: fixtureId }
 
-async function fetchBookmakerOdds() {
-  if (!window.ODDS_API_KEY || _oddsFetched) return;
-  _oddsFetched = true;
-
-  // Cache 60 min dans localStorage
-  const CACHE_KEY = "wc2026_odds_cache";
-  const cached = (() => { try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch { return null; } })();
-  if (cached && Date.now() - cached.ts < 60 * 60 * 1000) {
-    liveOdds = cached.data;
-    MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
-    return;
-  }
+async function fetchLiveStats() {
+  if (!window.API_FOOTBALL_KEY) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const liveMatches = MATCHES.filter((m) => {
+    const ls = liveScores[m.id];
+    return ls && LIVE_STATUSES.includes(ls.status);
+  });
+  if (!liveMatches.length) return;
 
   try {
-    const url = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey=${window.ODDS_API_KEY}&regions=eu&markets=h2h,totals&oddsFormat=decimal`;
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const events = await res.json();
-
-    events.forEach((ev) => {
-      // Chercher le match correspondant par noms d'équipes
-      const homeNorm = ev.home_team.toLowerCase();
-      const awayNorm = ev.away_team.toLowerCase();
-      const match = MATCHES.find((m) => {
-        const mh = (NAME_MAP[m.home.name] || m.home.name).toLowerCase();
-        const ma = (NAME_MAP[m.away.name] || m.away.name).toLowerCase();
-        return mh.includes(homeNorm) || homeNorm.includes(mh) ||
-               ma.includes(awayNorm) || awayNorm.includes(ma);
+    // 1. Récupère les fixtures live WC du jour (1 requête)
+    if (!Object.keys(_apifbFixtures).length) {
+      const r = await fetch(
+        `https://v3.football.api-sports.io/fixtures?league=1&season=2026&date=${today}&status=1H-2H-HT`,
+        { headers: { "x-apisports-key": window.API_FOOTBALL_KEY } }
+      );
+      if (!r.ok) return;
+      const data = await r.json();
+      (data.response || []).forEach((fx) => {
+        const hNorm = fx.teams.home.name.toLowerCase();
+        const aNorm = fx.teams.away.name.toLowerCase();
+        const ourMatch = MATCHES.find((m) => {
+          const mh = (NAME_MAP[m.home.name] || m.home.name).toLowerCase();
+          const ma = (NAME_MAP[m.away.name] || m.away.name).toLowerCase();
+          return (mh.includes(hNorm) || hNorm.includes(mh)) &&
+                 (ma.includes(aNorm) || aNorm.includes(ma));
+        });
+        if (ourMatch) _apifbFixtures[ourMatch.id] = fx.fixture.id;
       });
-      if (!match) return;
+    }
 
-      // Prendre le premier bookmaker disponible
-      const bk = ev.bookmakers?.[0];
-      if (!bk) return;
+    // 2. Récupère les stats de chaque match live (1 requête par match)
+    for (const m of liveMatches) {
+      const fxId = _apifbFixtures[m.id];
+      if (!fxId) continue;
+      const r = await fetch(
+        `https://v3.football.api-sports.io/fixtures/statistics?fixture=${fxId}`,
+        { headers: { "x-apisports-key": window.API_FOOTBALL_KEY } }
+      );
+      if (!r.ok) continue;
+      const data = await r.json();
+      const teams = data.response || [];
+      if (teams.length < 2) continue;
 
-      const h2h = bk.markets?.find((mk) => mk.key === "h2h");
-      const tot = bk.markets?.find((mk) => mk.key === "totals");
+      const parse = (teamStats, key) => {
+        const v = teamStats.statistics?.find((s) => s.type === key)?.value;
+        if (v == null) return null;
+        if (typeof v === "string" && v.endsWith("%")) return parseFloat(v);
+        return typeof v === "number" ? v : null;
+      };
 
-      const entry = {};
+      // Vérifier quelle équipe est domicile dans l'API vs dans nos données
+      const apiHomeName = teams[0].team.name.toLowerCase();
+      const ourHomeName = (NAME_MAP[m.home.name] || m.home.name).toLowerCase();
+      const flip = !apiHomeName.includes(ourHomeName) && !ourHomeName.includes(apiHomeName);
 
-      if (h2h) {
-        const outcomes = h2h.outcomes;
-        const hOdd = outcomes.find((o) => o.name === ev.home_team)?.price;
-        const aOdd = outcomes.find((o) => o.name === ev.away_team)?.price;
-        const dOdd = outcomes.find((o) => o.name === "Draw")?.price;
-        if (hOdd && aOdd && dOdd) {
-          // Convertir cotes → probas implicites (normalisées)
-          const pH = 1 / hOdd, pA = 1 / aOdd, pD = 1 / dOdd;
-          const sum = pH + pA + pD;
-          entry.result = { home: pH / sum, draw: pD / sum, away: pA / sum };
-        }
-      }
+      const homeTeam = flip ? teams[1] : teams[0];
+      const awayTeam = flip ? teams[0] : teams[1];
 
-      if (tot) {
-        const over = tot.outcomes.find((o) => o.name === "Over")?.price;
-        const under = tot.outcomes.find((o) => o.name === "Under")?.price;
-        if (over && under) {
-          const pO = 1 / over, pU = 1 / under;
-          const sum = pO + pU;
-          entry.totals = { over: pO / sum, under: pU / sum };
-        }
-      }
-
-      if (entry.result || entry.totals) {
-        liveOdds[match.id] = entry;
-      }
-    });
-
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: liveOdds }));
-    MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
-  } catch (e) {
-    // silently fall back to Elo odds
-  }
+      liveStats[m.id] = {
+        homePoss:  parse(homeTeam, "Ball Possession") ?? 50,
+        homeSoT:   parse(homeTeam, "Shots on Goal")   ?? 0,
+        awaySoT:   parse(awayTeam, "Shots on Goal")   ?? 0,
+      };
+      renderMatchBetting(m.id);
+    }
+  } catch (_) { /* fail silently */ }
 }
 
 const START_BALANCE = 100; // € fictifs au départ
@@ -1618,9 +1715,12 @@ function renderMatchBetting(matchId) {
       html += `<div class="bet-locked">🎟️ Vote « Je viens » pour pouvoir parier sur ce match.</div>`;
     } else {
       const draft = betDraft[matchId];
-      const oddsSource = liveOdds[matchId]
-        ? "· cotes bookmakers (Bet365 / Pinnacle) ajustées par les paris du groupe 📊"
-        : "· cotes calculées selon le niveau des équipes, ajustées par les paris du groupe 📈";
+      const ls = liveScores[matchId];
+      const isLive = ls && LIVE_STATUSES.includes(ls.status);
+      const hasStats = !!liveStats[matchId];
+      const oddsSource = isLive
+        ? (hasStats ? "· cotes EN DIRECT — score + possession + tirs cadrés 🔴" : "· cotes EN DIRECT — modèle Poisson (score + minute) 🔴")
+        : "· cotes pré-match — niveau des équipes + paris du groupe 📈";
       html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">${oddsSource}</span></div>`;
       // Marchés
       ["result", "totals", "firstScorer"].forEach((market) => {
@@ -1926,8 +2026,11 @@ function renderLiveScore(matchId) {
 }
 
 function startLivePolling() {
-  refreshLiveScores(false);                               // tout au chargement
-  setInterval(() => refreshLiveScores(true), 5 * 60 * 1000); // puis toutes les 5 min (jour J)
+  refreshLiveScores(false);
+  setInterval(async () => {
+    await refreshLiveScores(true);
+    fetchLiveStats();   // stats possession/tirs pour les matchs en cours
+  }, 5 * 60 * 1000);
 }
 
 // ── Auto-règlement dès que l'API dit FT ───────────────────
@@ -2420,7 +2523,6 @@ function _renderAdminDashboard(el) {
     renderMatches();
     autoEnableNotifications();
   }
-  fetchBookmakerOdds();
 })();
 </script>
 </body>
