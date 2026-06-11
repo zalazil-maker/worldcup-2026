@@ -642,6 +642,12 @@ footer strong { color: var(--gold-light); }
   color: #fca5a5; line-height: 1.5;
 }
 .bet-locked-live small { color: var(--text-muted); font-size: .78rem; }
+.live-stake-notice {
+  font-size: .8rem; color: #fbbf24; margin-bottom: 8px;
+  background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.2);
+  border-radius: 7px; padding: 6px 10px;
+}
+.live-stake-notice strong { color: #fcd34d; }
 .bet-balance-line { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
 .bet-balance-line strong { color: #4ade80; }
 .odds-hint { color: var(--text-muted); font-size: .74rem; }
@@ -1401,7 +1407,8 @@ async function fetchLiveOdds() {
   } catch (_) { /* repli silencieux sur le modèle Poisson/Elo */ }
 }
 
-const START_BALANCE = 100; // € fictifs au départ
+const START_BALANCE = 100;  // € fictifs au départ
+const LIVE_MAX_STAKE = 20;  // € max par pari en cours de match (anti-abus)
 
 // ── State ──────────────────────────────────────────────────
 let currentUser = null;       // { id, name }
@@ -2065,6 +2072,7 @@ function renderMatchBetting(matchId) {
           <small>Les paris ne sont acceptés qu'avant le coup d'envoi.</small>
         </div>`;
       } else {
+      const maxStake = isLive ? Math.min(LIVE_MAX_STAKE, myBalance()) : myBalance();
       let oddsSource;
       if (real) {
         oddsSource = (isLive || real.live)
@@ -2076,6 +2084,9 @@ function renderMatchBetting(matchId) {
         oddsSource = "· cotes pré-match — modèle Elo interne 📈";
       }
       html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">${oddsSource}</span></div>`;
+      if (isLive) {
+        html += `<div class="live-stake-notice">⚡ Paris en direct — mise max <strong>${LIVE_MAX_STAKE} €</strong></div>`;
+      }
       // Marchés
       ["result", "totals", "firstScorer"].forEach((market) => {
         html += `<div class="market"><div class="market-label">${MARKET_LABELS[market]}</div><div class="market-options">`;
@@ -2101,13 +2112,13 @@ function renderMatchBetting(matchId) {
           <div class="betslip-sel">${selectionLabel(m, draft.market, draft.selection)} <span class="betslip-odd">@ ${draft.odds.toFixed(2)}</span></div>
           <div class="betslip-row">
             <input type="number" id="stake-${matchId}" class="stake-input" min="1" step="1"
-              max="${myBalance()}" placeholder="Mise €" oninput="updatePotential('${matchId}')" />
+              max="${maxStake}" placeholder="Mise €" oninput="updatePotential('${matchId}')" />
             <span class="potential" id="potential-${matchId}">Gain : —</span>
             <button class="place-bet-btn" onclick="placeBet('${matchId}')">Parier 🎯</button>
           </div>
         </div>`;
       }
-      } // fin else (pas live)
+      } // fin else (pas live/done)
     }
   }
 
@@ -2156,12 +2167,15 @@ async function placeBet(matchId) {
   const stake = parseFloat(input?.value);
 
   if (!stake || stake <= 0) { showToast("⚠️ Entre une mise valide."); return; }
-  if (stake > myBalance()) { showToast("💸 Solde insuffisant !"); return; }
   if (results[matchId]?.settled) { showToast("⛔ Ce match est terminé."); return; }
   const _ls = liveScores[matchId];
-  if (_ls && (LIVE_STATUSES.includes(_ls.status) || DONE_STATUSES.includes(_ls.status))) {
-    showToast("🔒 Paris fermés — le match a déjà commencé."); return;
+  const _isLive = _ls && LIVE_STATUSES.includes(_ls.status);
+  const _isDone = _ls && DONE_STATUSES.includes(_ls.status);
+  if (_isDone) { showToast("🔒 Match terminé — paris fermés."); return; }
+  if (_isLive && stake > LIVE_MAX_STAKE) {
+    showToast(`🔒 Mise max en direct : ${LIVE_MAX_STAKE} €`); return;
   }
+  if (stake > myBalance()) { showToast("💸 Solde insuffisant !"); return; }
   const myVote = (votes[matchId] || {})[currentUser.id];
   if (myVote?.coming !== true) { showToast("🎟️ Vote « Je viens » d'abord."); return; }
 
