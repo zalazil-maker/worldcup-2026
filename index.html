@@ -756,6 +756,23 @@ footer strong { color: var(--gold-light); }
   border-radius: 8px; padding: 10px; cursor: pointer; font-size: .85rem;
 }
 .admin-refresh:hover { border-color: var(--gold); }
+.broadcast-form {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px;
+}
+.broadcast-form input, .broadcast-form textarea {
+  background: var(--dark3); border: 1px solid var(--card-border);
+  color: var(--text); border-radius: 8px; padding: 10px 12px;
+  font-size: .9rem; font-family: inherit; resize: vertical;
+}
+.broadcast-form input:focus, .broadcast-form textarea:focus {
+  outline: none; border-color: var(--gold);
+}
+.broadcast-send-btn {
+  background: var(--gold); color: var(--dark); border: none;
+  font-weight: 700; font-size: .9rem; border-radius: 10px;
+  padding: 12px; cursor: pointer;
+}
+.broadcast-send-btn:hover { opacity: .85; }
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {
@@ -1409,6 +1426,46 @@ function subscribeBalances() {
   }));
 }
 
+// ── Notifications admin (broadcast) ───────────────────────
+let _lastBroadcastTs = 0;   // évite de re-notifier au rechargement
+
+function subscribeBroadcast() {
+  if (!db) return;
+  const { doc, onSnapshot } = window._firebaseModules;
+  onSnapshot(doc(db, "broadcast", "latest"), (snap) => {
+    if (!snap.exists()) return;
+    const { title, body, sentAt } = snap.data();
+    if (!sentAt || sentAt <= _lastBroadcastTs) return;  // déjà vu
+    _lastBroadcastTs = sentAt;
+    // Affiche via SW si notifs accordées
+    if (Notification.permission === "granted" && navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: "SCHEDULE_NOTIFICATION", delay: 0, title, body, tag: "broadcast-" + sentAt,
+      });
+    }
+    // Toujours afficher en toast (même sans notifs)
+    showToast(`🔔 ${title} — ${body}`);
+  });
+}
+
+async function sendBroadcast() {
+  const titleEl = document.getElementById("broadcast-title");
+  const bodyEl  = document.getElementById("broadcast-body");
+  const title = titleEl?.value.trim();
+  const body  = bodyEl?.value.trim();
+  if (!title) { showToast("⚠️ Le titre est obligatoire."); return; }
+  if (!db) { showToast("Mode démo : envoi non synchronisé."); return; }
+  try {
+    const { doc, setDoc } = window._firebaseModules;
+    await setDoc(doc(db, "broadcast", "latest"), { title, body: body || "", sentAt: Date.now() });
+    titleEl.value = ""; bodyEl.value = "";
+    showToast("📣 Notification envoyée à tout le groupe !");
+  } catch (err) {
+    console.error(err);
+    showToast("Erreur lors de l'envoi.");
+  }
+}
+
 // Crée le compte joueur (100 €) si inexistant + suivi présence/installation
 function detectPlatform() {
   const ua = navigator.userAgent;
@@ -1499,6 +1556,7 @@ function renderMatches() {
     _subscribed = true;
     MATCHES.forEach((m) => subscribeToMatch(m.id));
     subscribeBalances();
+    subscribeBroadcast();
   }
   ensureBalance();
   updateBalanceDisplay();
@@ -2635,7 +2693,15 @@ function _renderAdminDashboard(el) {
   if (!totalBets) betsHtml += `<div class="admin-dim">Aucun pari encore.</div>`;
   betsHtml += `</div>`;
 
-  el.innerHTML = `<h2>📊 Tableau de bord</h2>${playersHtml}${attHtml}${betsHtml}
+  const broadcastHtml = `
+    <div class="admin-section-title">📣 Envoyer une notification à tout le groupe</div>
+    <div class="broadcast-form">
+      <input id="broadcast-title" type="text" maxlength="80" placeholder="Titre (ex: Attention, le match commence !)" />
+      <textarea id="broadcast-body" maxlength="200" rows="2" placeholder="Message (facultatif)"></textarea>
+      <button class="broadcast-send-btn" onclick="sendBroadcast()">📨 Envoyer à tous</button>
+    </div>`;
+
+  el.innerHTML = `<h2>📊 Tableau de bord</h2>${playersHtml}${attHtml}${betsHtml}${broadcastHtml}
     <button class="admin-refresh" onclick="renderAdminDashboard()">🔄 Rafraîchir</button>`;
 }
 
