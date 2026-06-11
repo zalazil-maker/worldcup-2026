@@ -30,3 +30,8 @@ const FIREBASE_ENABLED = true;
 // Sert à ouvrir le tableau de bord admin (liste des joueurs, présences, paris).
 const ADMIN_PIN = "2026";
 
+// ── Clé API The Odds API (cotes bookmakers en direct) ──
+// Gratuit : 500 requêtes/mois → https://the-odds-api.com/
+// Laisse vide "" pour utiliser uniquement les cotes calculées par Elo.
+const ODDS_API_KEY = "";
+

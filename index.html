@@ -1003,6 +1003,13 @@ function computeOdds(matchId) {
     stakes[b.market][b.selection] = (stakes[b.market][b.selection] || 0) + b.stake;
   });
 
+  // Si des cotes bookmakers sont disponibles, les utiliser comme base pour le résultat et les totaux
+  const ext = liveOdds[matchId];
+  if (ext) {
+    if (ext.result) base.result = ext.result;
+    if (ext.totals) base.totals = ext.totals;
+  }
+
   const odds = {};
   ["result", "totals", "firstScorer"].forEach((mk) => {
     const blended = blendWithBets(base[mk], stakes[mk]);
@@ -1010,6 +1017,85 @@ function computeOdds(matchId) {
     for (const k in blended) odds[mk][k] = toOdds(blended[k]);
   });
   return odds;
+}
+
+// ── Cotes bookmakers via The Odds API ─────────────────────
+let liveOdds = {};   // { matchId: { result: {home,draw,away}, totals: {over,under} } }
+let _oddsFetched = false;
+
+async function fetchBookmakerOdds() {
+  if (!window.ODDS_API_KEY || _oddsFetched) return;
+  _oddsFetched = true;
+
+  // Cache 60 min dans localStorage
+  const CACHE_KEY = "wc2026_odds_cache";
+  const cached = (() => { try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch { return null; } })();
+  if (cached && Date.now() - cached.ts < 60 * 60 * 1000) {
+    liveOdds = cached.data;
+    MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
+    return;
+  }
+
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey=${window.ODDS_API_KEY}&regions=eu&markets=h2h,totals&oddsFormat=decimal`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const events = await res.json();
+
+    events.forEach((ev) => {
+      // Chercher le match correspondant par noms d'équipes
+      const homeNorm = ev.home_team.toLowerCase();
+      const awayNorm = ev.away_team.toLowerCase();
+      const match = MATCHES.find((m) => {
+        const mh = (NAME_MAP[m.home.name] || m.home.name).toLowerCase();
+        const ma = (NAME_MAP[m.away.name] || m.away.name).toLowerCase();
+        return mh.includes(homeNorm) || homeNorm.includes(mh) ||
+               ma.includes(awayNorm) || awayNorm.includes(ma);
+      });
+      if (!match) return;
+
+      // Prendre le premier bookmaker disponible
+      const bk = ev.bookmakers?.[0];
+      if (!bk) return;
+
+      const h2h = bk.markets?.find((mk) => mk.key === "h2h");
+      const tot = bk.markets?.find((mk) => mk.key === "totals");
+
+      const entry = {};
+
+      if (h2h) {
+        const outcomes = h2h.outcomes;
+        const hOdd = outcomes.find((o) => o.name === ev.home_team)?.price;
+        const aOdd = outcomes.find((o) => o.name === ev.away_team)?.price;
+        const dOdd = outcomes.find((o) => o.name === "Draw")?.price;
+        if (hOdd && aOdd && dOdd) {
+          // Convertir cotes → probas implicites (normalisées)
+          const pH = 1 / hOdd, pA = 1 / aOdd, pD = 1 / dOdd;
+          const sum = pH + pA + pD;
+          entry.result = { home: pH / sum, draw: pD / sum, away: pA / sum };
+        }
+      }
+
+      if (tot) {
+        const over = tot.outcomes.find((o) => o.name === "Over")?.price;
+        const under = tot.outcomes.find((o) => o.name === "Under")?.price;
+        if (over && under) {
+          const pO = 1 / over, pU = 1 / under;
+          const sum = pO + pU;
+          entry.totals = { over: pO / sum, under: pU / sum };
+        }
+      }
+
+      if (entry.result || entry.totals) {
+        liveOdds[match.id] = entry;
+      }
+    });
+
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: liveOdds }));
+    MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
+  } catch (e) {
+    // silently fall back to Elo odds
+  }
 }
 
 const START_BALANCE = 100; // € fictifs au départ
@@ -1376,28 +1462,7 @@ function renderMatchVotes(matchId) {
           <span class="chip-icon">${opt.icon}</span>${opt.label}
         </button>`).join("");
 
-      // Ce que LES AUTRES ramènent déjà (pour se coordonner)
-      const others = Object.entries(matchVotes)
-        .filter(([uid, v]) => uid !== currentUser?.id && v.coming && (v.bringing?.length || v.other));
-      let othersHtml = "";
-      if (others.length) {
-        const rows = others.map(([, v]) => {
-          const items = [
-            ...(v.bringing || []).map((bid) => {
-              const o = BRINGING_OPTIONS.find((x) => x.id === bid);
-              return o ? `${o.icon} ${o.label}` : bid;
-            }),
-            ...(v.other ? [`✏️ ${v.other}`] : []),
-          ].join(", ");
-          return `<div class="coord-row"><span class="coord-name">${v.name}</span> ramène <strong>${items}</strong></div>`;
-        }).join("");
-        othersHtml = `<div class="coord-box">
-          <div class="coord-title">👀 Déjà prévu par le groupe — évite les doublons !</div>
-          ${rows}
-        </div>`;
-      }
-
-      bringFormEl.innerHTML = othersHtml + `
+      bringFormEl.innerHTML = `
         <div class="bringing-label">Qu'est-ce que TU ramènes ?</div>
         <div class="bringing-options" id="chips-${matchId}">${chipsHtml}</div>
         <div class="bringing-other">
@@ -1553,7 +1618,10 @@ function renderMatchBetting(matchId) {
       html += `<div class="bet-locked">🎟️ Vote « Je viens » pour pouvoir parier sur ce match.</div>`;
     } else {
       const draft = betDraft[matchId];
-      html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">· cotes selon le niveau des équipes, ajustées par les paris du groupe 📈</span></div>`;
+      const oddsSource = liveOdds[matchId]
+        ? "· cotes bookmakers (Bet365 / Pinnacle) ajustées par les paris du groupe 📊"
+        : "· cotes calculées selon le niveau des équipes, ajustées par les paris du groupe 📈";
+      html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">${oddsSource}</span></div>`;
       // Marchés
       ["result", "totals", "firstScorer"].forEach((market) => {
         html += `<div class="market"><div class="market-label">${MARKET_LABELS[market]}</div><div class="market-options">`;
@@ -2352,6 +2420,7 @@ function _renderAdminDashboard(el) {
     renderMatches();
     autoEnableNotifications();
   }
+  fetchBookmakerOdds();
 })();
 </script>
 </body>
