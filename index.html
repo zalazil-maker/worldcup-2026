@@ -1155,7 +1155,10 @@ function inPlayProbs(matchId, hg, ag, minute) {
   return { home: pH / s, draw: pD / s, away: pA / s };
 }
 
-// Cotes finales — pré-match = Elo + groupe, live = Poisson + stats
+// Cotes finales
+// • result + totals : cotes Bet365 brutes si disponibles (identiques à ce qu'on voit sur le site)
+//   → sinon Poisson live → sinon Elo pré-match
+// • firstScorer : modèle interne (l'API ne couvre pas ce marché)
 function computeOdds(matchId) {
   const m = MATCHES.find((x) => x.id === matchId);
   const base = baseProbs(m);
@@ -1167,37 +1170,58 @@ function computeOdds(matchId) {
     stakes[b.market][b.selection] = (stakes[b.market][b.selection] || 0) + b.stake;
   });
 
-  const ls = liveScores[matchId];
+  const real = liveOdds[matchId];
+  const ls   = liveScores[matchId];
   const isLive = ls && LIVE_STATUSES.includes(ls.status);
 
-  // Priorité 1 : vraies cotes bookmaker (odds-api.io) — déjà in-play, bougent à chaque but
-  const real = liveOdds[matchId];
-  if (real && (real.result || real.totals)) {
-    if (real.result) base.result = real.result;
-    if (real.totals) base.totals = real.totals;
+  const odds = {};
+
+  // ── result & totals ─────────────────────────────────────────
+  if (real?.result) {
+    // Cotes brutes Bet365 — affichées telles quelles, aucune retouche
+    odds.result = { ...real.result };
   } else if (isLive) {
-    // Priorité 2 : modèle Poisson interne (si pas de cotes réelles)
+    // Modèle Poisson si pas de cotes réelles
     const minute = matchMinute(matchId) ?? 45;
     const hg = parseInt(ls.home, 10) || 0;
     const ag = parseInt(ls.away, 10) || 0;
     const live = inPlayProbs(matchId, hg, ag, minute);
     if (live) {
-      base.result = live;
-      const totalSoFar = hg + ag;
-      const rem = Math.max(0, 93 - minute) / 90;
-      const expectedMore = 2.6 * rem;
-      const need = Math.max(0, 3 - totalSoFar);
-      const pOver = totalSoFar >= 3 ? 0.97 : clamp(1 - poissonCDF(need - 1, expectedMore), 0.03, 0.97);
-      base.totals = { over: pOver, under: 1 - pOver };
+      const blended = blendWithBets(live, stakes.result);
+      odds.result = {};
+      for (const k in blended) odds.result[k] = toOdds(blended[k]);
     }
   }
+  if (!odds.result) {
+    const blended = blendWithBets(base.result, stakes.result);
+    odds.result = {};
+    for (const k in blended) odds.result[k] = toOdds(blended[k]);
+  }
 
-  const odds = {};
-  ["result", "totals", "firstScorer"].forEach((mk) => {
-    const blended = blendWithBets(base[mk], stakes[mk]);
-    odds[mk] = {};
-    for (const k in blended) odds[mk][k] = toOdds(blended[k]);
-  });
+  if (real?.totals) {
+    odds.totals = { ...real.totals };
+  } else if (isLive) {
+    const minute = matchMinute(matchId) ?? 45;
+    const hg = parseInt(ls.home, 10) || 0;
+    const ag = parseInt(ls.away, 10) || 0;
+    const totalSoFar = hg + ag;
+    const rem = Math.max(0, 93 - minute) / 90;
+    const pOver = totalSoFar >= 3 ? 0.97 : clamp(1 - poissonCDF(Math.max(0, 3 - totalSoFar) - 1, 2.6 * rem), 0.03, 0.97);
+    const blended = blendWithBets({ over: pOver, under: 1 - pOver }, stakes.totals);
+    odds.totals = {};
+    for (const k in blended) odds.totals[k] = toOdds(blended[k]);
+  }
+  if (!odds.totals) {
+    const blended = blendWithBets(base.totals, stakes.totals);
+    odds.totals = {};
+    for (const k in blended) odds.totals[k] = toOdds(blended[k]);
+  }
+
+  // ── firstScorer : modèle interne uniquement ──────────────────
+  const fsBlended = blendWithBets(base.firstScorer, stakes.firstScorer);
+  odds.firstScorer = {};
+  for (const k in fsBlended) odds.firstScorer[k] = toOdds(fsBlended[k]);
+
   return odds;
 }
 
@@ -1273,21 +1297,19 @@ async function fetchLiveOdds() {
 
       const out = {};
 
-      // 1X2 (ML)
+      // 1X2 (ML) — stocker les cotes BRUTES du bookmaker, pas des probas
       const ml = markets.find((mk) => mk.name === "ML")?.odds?.[0];
       if (ml && ml.home && ml.away) {
-        const p = oddsToProbs({ home: ml.home, draw: ml.draw, away: ml.away });
-        if (p) out.result = flip
-          ? { home: p.away, draw: p.draw, away: p.home }
-          : { home: p.home, draw: p.draw, away: p.away };
+        out.result = flip
+          ? { home: parseFloat(ml.away), draw: parseFloat(ml.draw || 0), away: parseFloat(ml.home) }
+          : { home: parseFloat(ml.home), draw: parseFloat(ml.draw || 0), away: parseFloat(ml.away) };
       }
 
-      // Over/Under 2.5 buts
+      // Over/Under 2.5 buts — cotes brutes
       const tot = (markets.find((mk) => mk.name === "Goals Over/Under")?.odds || [])
         .find((o) => Math.abs(o.hdp - 2.5) < 0.01);
       if (tot && tot.over && tot.under) {
-        const p = oddsToProbs({ over: tot.over, under: tot.under });
-        if (p) out.totals = p;
+        out.totals = { over: parseFloat(tot.over), under: parseFloat(tot.under) };
       }
 
       if (out.result || out.totals) {
@@ -1930,12 +1952,12 @@ function renderMatchBetting(matchId) {
       let oddsSource;
       if (real) {
         oddsSource = (isLive || real.live)
-          ? `· vraies cotes ${oddsBook()} EN DIRECT 🔴`
-          : `· vraies cotes ${oddsBook()} + paris du groupe 📊`;
+          ? `· cotes officielles ${oddsBook()} EN DIRECT 🔴`
+          : `· cotes officielles ${oddsBook()} (1×2 + O/U identiques au site) 📊`;
       } else if (isLive) {
         oddsSource = "· cotes EN DIRECT — modèle Poisson (score + minute) 🔴";
       } else {
-        oddsSource = "· cotes pré-match — niveau des équipes + paris du groupe 📈";
+        oddsSource = "· cotes pré-match — modèle Elo interne 📈";
       }
       html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">${oddsSource}</span></div>`;
       // Marchés
