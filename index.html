@@ -1147,6 +1147,10 @@ function computeOdds(matchId) {
 // Clé dans firebase-config.js : ODDS_API_KEY. CORS autorisé (*).
 // Les cotes du bookmaker bougent automatiquement en direct quand un but tombe.
 const ODDS_API_BASE = "https://api.odds-api.io/v3";
+// Les const de firebase-config.js ne sont pas sur window → accès sécurisé via typeof
+const oddsApiKey  = () => (typeof ODDS_API_KEY !== "undefined") ? ODDS_API_KEY : "";
+const oddsLeague  = () => (typeof ODDS_API_LEAGUE !== "undefined" && ODDS_API_LEAGUE) ? ODDS_API_LEAGUE : "international-fifa-world-cup";
+const oddsBook    = () => (typeof ODDS_API_BOOKMAKER !== "undefined" && ODDS_API_BOOKMAKER) ? ODDS_API_BOOKMAKER : "Bet365";
 let _oddsEventMap = {};   // { matchId: eventId }
 let _oddsMapTried = false;
 
@@ -1168,8 +1172,8 @@ function oddsToProbs(obj) {
 async function buildOddsEventMap() {
   if (_oddsMapTried && Object.keys(_oddsEventMap).length) return;
   _oddsMapTried = true;
-  const key = window.ODDS_API_KEY;
-  const league = window.ODDS_API_LEAGUE || "international-fifa-world-cup";
+  const key = oddsApiKey();
+  const league = oddsLeague();
   const r = await fetch(`${ODDS_API_BASE}/events?sport=football&league=${league}&apiKey=${key}`);
   if (!r.ok) return;
   const events = await r.json();
@@ -1188,14 +1192,14 @@ async function buildOddsEventMap() {
 
 // Étape 2 : récupère les cotes (1 requête /odds/multi, jusqu'à 10 matchs)
 async function fetchLiveOdds() {
-  const key = window.ODDS_API_KEY;
+  const key = oddsApiKey();
   if (!key) return;
   try {
     await buildOddsEventMap();
     const entries = Object.entries(_oddsEventMap);
     if (!entries.length) return;
 
-    const bk = window.ODDS_API_BOOKMAKER || "Bet365";
+    const bk = oddsBook();
     const ids = entries.map(([, v]) => v.id).slice(0, 10).join(",");
     const r = await fetch(`${ODDS_API_BASE}/odds/multi?eventIds=${ids}&bookmakers=${bk}&apiKey=${key}`);
     if (!r.ok) return;
@@ -1787,8 +1791,8 @@ function renderMatchBetting(matchId) {
       let oddsSource;
       if (real) {
         oddsSource = (isLive || real.live)
-          ? `· vraies cotes ${window.ODDS_API_BOOKMAKER || "Bet365"} EN DIRECT 🔴`
-          : `· vraies cotes ${window.ODDS_API_BOOKMAKER || "Bet365"} + paris du groupe 📊`;
+          ? `· vraies cotes ${oddsBook()} EN DIRECT 🔴`
+          : `· vraies cotes ${oddsBook()} + paris du groupe 📊`;
       } else if (isLive) {
         oddsSource = "· cotes EN DIRECT — modèle Poisson (score + minute) 🔴";
       } else {
