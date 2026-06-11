@@ -2889,6 +2889,29 @@ async function deletePlayer(uid) {
 // ── Recalcule les cotes des paris EN COURS sur les cotes actuelles ──
 // Ne touche pas aux paris déjà réglés (gagné/perdu) ni au solde des joueurs
 // (la mise reste débitée, seul le gain potentiel change).
+async function promptBalanceAdjust(userId, userName, currentBalance) {
+  const input = prompt(
+    `Modifier le solde de ${userName}\nSolde actuel : ${currentBalance.toFixed(2)} €\n\nEntre le montant à ajouter (ex: +40) ou retirer (ex: -40) :`,
+    ""
+  );
+  if (input === null || input.trim() === "") return;
+  const delta = parseFloat(input.replace(",", "."));
+  if (isNaN(delta) || delta === 0) { showToast("⚠️ Montant invalide."); return; }
+  const newBalance = +(currentBalance + delta).toFixed(2);
+  if (newBalance < 0 && !confirm(`Le solde deviendrait négatif (${newBalance.toFixed(2)} €). Continuer ?`)) return;
+  if (!db) { showToast("Mode démo."); return; }
+  try {
+    const { doc, setDoc } = window._firebaseModules;
+    await setDoc(doc(db, "users", userId), { balance: newBalance }, { merge: true });
+    const sign = delta > 0 ? "+" : "";
+    showToast(`✅ ${userName} : ${sign}${delta.toFixed(2)} € → nouveau solde ${newBalance.toFixed(2)} €`);
+    renderAdminDashboard();
+  } catch (err) {
+    console.error(err);
+    showToast("Erreur lors de la modification.");
+  }
+}
+
 async function repriceOpenBets() {
   if (!db) { showToast("Mode démo : recalcul non synchronisé."); return; }
   // Compte les paris en cours
@@ -2971,8 +2994,10 @@ function _renderAdminDashboard(el) {
       <td title="${p.notif || "inconnu"}">${notifIcon(p.notif)}</td>
       <td class="admin-dim">${fmtDate(p.firstSeen)}</td>
       <td class="admin-dim">${fmtDate(p.lastSeen)}</td>
-      <td><button class="admin-del" title="Supprimer ce compte"
-        onclick="deletePlayer('${p.id}')">🗑️</button></td>
+      <td style="display:flex;gap:4px">
+        <button class="admin-del" title="Modifier le solde" onclick="promptBalanceAdjust('${p.id}','${(p.name||'').replace(/'/g,"\\'")}',${num(p.balance).toFixed(2)})">✏️</button>
+        <button class="admin-del" title="Supprimer ce compte" onclick="deletePlayer('${p.id}')">🗑️</button>
+      </td>
     </tr>`;
   });
   if (!players.length) playersHtml += `<tr><td colspan="8" class="admin-dim">Aucun joueur encore.</td></tr>`;
