@@ -797,6 +797,18 @@ footer strong { color: var(--gold-light); }
   padding: 12px; cursor: pointer;
 }
 .broadcast-send-btn:hover { opacity: .85; }
+.broadcast-active {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  padding: 10px 12px; border-radius: 10px;
+  background: rgba(201,162,39,.1); border: 1px solid rgba(201,162,39,.3);
+}
+.broadcast-active-text { flex: 1; font-size: .85rem; line-height: 1.35; }
+.broadcast-del-btn {
+  flex-shrink: 0; background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.4);
+  color: #f87171; font-size: .8rem; font-weight: 600;
+  border-radius: 8px; padding: 6px 10px; cursor: pointer;
+}
+.broadcast-del-btn:hover { background: rgba(239,68,68,.25); }
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {
@@ -1520,13 +1532,23 @@ function dismissBanner() {
   if (_bannerTs) localStorage.setItem("wc2026_banner_dismissed", String(_bannerTs));
 }
 
+let _activeBroadcast = null;   // dernière annonce active (pour l'admin)
+
 function subscribeBroadcast() {
   if (!db) return;
   const { doc, onSnapshot } = window._firebaseModules;
   onSnapshot(doc(db, "broadcast", "latest"), (snap) => {
-    if (!snap.exists()) return;
+    if (!snap.exists()) {
+      // Annonce supprimée par l'organisateur → on masque la bannière pour tout le monde
+      _activeBroadcast = null;
+      const el = document.getElementById("broadcast-banner");
+      if (el) el.classList.add("hidden");
+      if (document.getElementById("admin-dashboard")?.offsetParent) renderAdminDashboard();
+      return;
+    }
     const { title, body, sentAt } = snap.data();
     if (!sentAt) return;
+    _activeBroadcast = { title, body: body || "", sentAt };
     // La bannière in-app s'affiche toujours pour le DERNIER message (même sans notifs),
     // tant qu'on ne l'a pas fermée manuellement.
     if (sentAt > (parseInt(localStorage.getItem("wc2026_banner_dismissed") || "0", 10) || 0)) {
@@ -1558,6 +1580,21 @@ async function sendBroadcast() {
   } catch (err) {
     console.error(err);
     showToast("Erreur lors de l'envoi.");
+  }
+}
+
+// Supprime l'annonce active → la bannière disparaît chez tout le monde
+async function deleteBroadcast() {
+  if (!db) { showToast("Mode démo : suppression non synchronisée."); return; }
+  if (!_activeBroadcast) { showToast("Aucune annonce active."); return; }
+  if (!confirm(`Supprimer l'annonce « ${_activeBroadcast.title} » ?\n\nLa bannière disparaîtra pour tout le groupe.`)) return;
+  try {
+    const { doc, deleteDoc } = window._firebaseModules;
+    await deleteDoc(doc(db, "broadcast", "latest"));
+    showToast("🗑️ Annonce supprimée.");
+  } catch (err) {
+    console.error(err);
+    showToast("Erreur lors de la suppression.");
   }
 }
 
@@ -2809,8 +2846,18 @@ function _renderAdminDashboard(el) {
   if (!totalBets) betsHtml += `<div class="admin-dim">Aucun pari encore.</div>`;
   betsHtml += `</div>`;
 
+  const activeHtml = _activeBroadcast ? `
+    <div class="broadcast-active">
+      <div class="broadcast-active-text">
+        <span class="admin-dim">Annonce active :</span>
+        <strong>${_activeBroadcast.title}</strong>${_activeBroadcast.body ? " — " + _activeBroadcast.body : ""}
+      </div>
+      <button class="broadcast-del-btn" onclick="deleteBroadcast()">🗑️ Supprimer</button>
+    </div>` : `<div class="admin-dim" style="margin-bottom:8px">Aucune annonce active.</div>`;
+
   const broadcastHtml = `
     <div class="admin-section-title">📣 Envoyer une notification à tout le groupe</div>
+    ${activeHtml}
     <div class="broadcast-form">
       <input id="broadcast-title" type="text" maxlength="80" placeholder="Titre (ex: Attention, le match commence !)" />
       <textarea id="broadcast-body" maxlength="200" rows="2" placeholder="Message (facultatif)"></textarea>
