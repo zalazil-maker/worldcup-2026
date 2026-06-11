@@ -637,6 +637,11 @@ footer strong { color: var(--gold-light); }
   border-radius: 8px; padding: 12px; font-size: .85rem;
   color: var(--text-muted); text-align: center;
 }
+.bet-locked-live {
+  background: rgba(239,68,68,.08); border: 1px dashed rgba(239,68,68,.35);
+  color: #fca5a5; line-height: 1.5;
+}
+.bet-locked-live small { color: var(--text-muted); font-size: .78rem; }
 .bet-balance-line { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
 .bet-balance-line strong { color: #4ade80; }
 .odds-hint { color: var(--text-muted); font-size: .74rem; }
@@ -2050,7 +2055,16 @@ function renderMatchBetting(matchId) {
       const draft = betDraft[matchId];
       const ls = liveScores[matchId];
       const isLive = ls && LIVE_STATUSES.includes(ls.status);
-      const real = liveOdds[matchId];
+      const isDone = ls && DONE_STATUSES.includes(ls.status);
+
+      // ── Paris fermés dès le coup d'envoi ──────────────────
+      if (isLive || isDone) {
+        const score = (ls.home != null && ls.away != null) ? ` (${ls.home}–${ls.away})` : "";
+        html += `<div class="bet-locked bet-locked-live">
+          🔒 Paris fermés — match en cours${score}<br>
+          <small>Les paris ne sont acceptés qu'avant le coup d'envoi.</small>
+        </div>`;
+      } else {
       let oddsSource;
       if (real) {
         oddsSource = (isLive || real.live)
@@ -2093,6 +2107,7 @@ function renderMatchBetting(matchId) {
           </div>
         </div>`;
       }
+      } // fin else (pas live)
     }
   }
 
@@ -2143,6 +2158,10 @@ async function placeBet(matchId) {
   if (!stake || stake <= 0) { showToast("⚠️ Entre une mise valide."); return; }
   if (stake > myBalance()) { showToast("💸 Solde insuffisant !"); return; }
   if (results[matchId]?.settled) { showToast("⛔ Ce match est terminé."); return; }
+  const _ls = liveScores[matchId];
+  if (_ls && (LIVE_STATUSES.includes(_ls.status) || DONE_STATUSES.includes(_ls.status))) {
+    showToast("🔒 Paris fermés — le match a déjà commencé."); return;
+  }
   const myVote = (votes[matchId] || {})[currentUser.id];
   if (myVote?.coming !== true) { showToast("🎟️ Vote « Je viens » d'abord."); return; }
 
