@@ -3082,19 +3082,26 @@ function _renderAdminDashboard(el) {
     renderMatches();
     autoEnableNotifications();
     // Au chargement : règle les matchs passés non réglés + corrige les paris en attente
-    // sur des matchs déjà réglés (race condition : bets[] vide lors du premier auto-settle)
-    setTimeout(async () => {
+    // Attend que les données Firestore soient chargées avant de tenter le règlement.
+    (async () => {
       await refreshLiveScores(false);
-      MATCHES.filter((m) => !m.ceremony && isPast(m)).forEach((m) => {
-        if (!results[m.id]?.settled) {
-          autoSettleFromLive(m.id);
-        } else {
-          // Résultat déjà là mais des paris sont encore ouverts → on les règle
-          const openBets = Object.values(bets[m.id] || {}).filter((b) => b.status === "open");
-          if (openBets.length) settleOpenBets(m.id);
+      // Attend jusqu'à 10 secondes que les paris soient chargés depuis Firestore
+      for (let i = 0; i < 20; i++) {
+        const pastUnsettled = MATCHES.filter((m) => !m.ceremony && isPast(m) && !results[m.id]?.settled);
+        const settledWithOpen = MATCHES.filter((m) => !m.ceremony && isPast(m) && results[m.id]?.settled
+          && Object.values(bets[m.id] || {}).some((b) => b.status === "open"));
+        if (pastUnsettled.length === 0 && settledWithOpen.length === 0) break; // tout est OK
+        // Vérifie si les bets sont chargés (au moins un match passé a des bets)
+        const betsLoaded = MATCHES.filter((m) => !m.ceremony && isPast(m))
+          .some((m) => Object.keys(bets[m.id] || {}).length > 0);
+        if (betsLoaded || i >= 5) {
+          pastUnsettled.forEach((m) => autoSettleFromLive(m.id));
+          settledWithOpen.forEach((m) => settleOpenBets(m.id));
+          break;
         }
-      });
-    }, 3000);
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    })();
   }
 })();
 </script>
