@@ -1429,6 +1429,25 @@ function subscribeBalances() {
 // ── Notifications admin (broadcast) ───────────────────────
 let _lastBroadcastTs = 0;   // évite de re-notifier au rechargement
 
+// Affiche une notification locale de façon robuste (SW prêt, sinon API native)
+async function showLocalNotification(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return false;
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.ready;   // attend que le SW soit actif
+      await reg.showNotification(title, {
+        body, tag,
+        icon: "/worldcup-2026/icon-192.png",
+        badge: "/worldcup-2026/icon-192.png",
+        vibrate: [200, 100, 200],
+        requireInteraction: true,
+      });
+      return true;
+    }
+  } catch (_) { /* repli ci-dessous */ }
+  try { new Notification(title, { body, tag }); return true; } catch (_) { return false; }
+}
+
 function subscribeBroadcast() {
   if (!db) return;
   const { doc, onSnapshot } = window._firebaseModules;
@@ -1436,15 +1455,13 @@ function subscribeBroadcast() {
     if (!snap.exists()) return;
     const { title, body, sentAt } = snap.data();
     if (!sentAt || sentAt <= _lastBroadcastTs) return;  // déjà vu
+    const isFirstLoad = _lastBroadcastTs === 0;
     _lastBroadcastTs = sentAt;
-    // Affiche via SW si notifs accordées
-    if (Notification.permission === "granted" && navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.controller.postMessage({
-        type: "SCHEDULE_NOTIFICATION", delay: 0, title, body, tag: "broadcast-" + sentAt,
-      });
-    }
-    // Toujours afficher en toast (même sans notifs)
-    showToast(`🔔 ${title} — ${body}`);
+    // À la 1ère charge, on ne notifie pas les vieux messages > 1h (évite le spam au reload)
+    const isStale = isFirstLoad && (Date.now() - sentAt > 60 * 60 * 1000);
+    if (isStale) return;
+    showLocalNotification(title, body || "", "broadcast-" + sentAt);
+    showToast(`🔔 ${title}${body ? " — " + body : ""}`);
   });
 }
 
@@ -1493,6 +1510,7 @@ async function ensureBalance() {
     name: currentUser.name,
     platform: detectPlatform(),
     lastSeen: Date.now(),
+    notif: ("Notification" in window) ? Notification.permission : "unsupported",
   };
   if (isInstalled()) { presence.installed = true; presence.installedAt = presence.installedAt || Date.now(); }
   if (!snap.exists()) {
@@ -2634,12 +2652,14 @@ function _renderAdminDashboard(el) {
   players.sort((a, b) => num(b.balance) - num(a.balance));
 
   const installedCount = players.filter((p) => p.installed).length;
+  const notifCount = players.filter((p) => p.notif === "granted").length;
+  const notifIcon = (n) => n === "granted" ? "🔔" : n === "denied" ? "🔕" : "—";
 
   // ── Joueurs ──
   let playersHtml = `
-    <div class="admin-section-title">👥 Joueurs (${players.length}) · ${installedCount} ont installé l'app</div>
+    <div class="admin-section-title">👥 Joueurs (${players.length}) · ${installedCount} ont installé l'app · ${notifCount} reçoivent les notifs 🔔</div>
     <div class="admin-table-wrap"><table class="admin-table">
-      <thead><tr><th>Prénom</th><th>Solde</th><th>Appareil</th><th>App ?</th><th>1ère visite</th><th>Vu</th><th></th></tr></thead>
+      <thead><tr><th>Prénom</th><th>Solde</th><th>Appareil</th><th>App ?</th><th>Notif</th><th>1ère visite</th><th>Vu</th><th></th></tr></thead>
       <tbody>`;
   const isMe = (id) => id === currentUser?.id;
   players.forEach((p) => {
@@ -2648,13 +2668,14 @@ function _renderAdminDashboard(el) {
       <td class="admin-bal">${num(p.balance).toFixed(2)} €</td>
       <td>${p.platform || "—"}</td>
       <td>${p.installed ? "✅" : "—"}</td>
+      <td title="${p.notif || "inconnu"}">${notifIcon(p.notif)}</td>
       <td class="admin-dim">${fmtDate(p.firstSeen)}</td>
       <td class="admin-dim">${fmtDate(p.lastSeen)}</td>
       <td><button class="admin-del" title="Supprimer ce compte"
         onclick="deletePlayer('${p.id}')">🗑️</button></td>
     </tr>`;
   });
-  if (!players.length) playersHtml += `<tr><td colspan="7" class="admin-dim">Aucun joueur encore.</td></tr>`;
+  if (!players.length) playersHtml += `<tr><td colspan="8" class="admin-dim">Aucun joueur encore.</td></tr>`;
   playersHtml += `</tbody></table></div>`;
 
   // ── Présences par match ──
