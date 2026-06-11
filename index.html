@@ -795,6 +795,32 @@ footer strong { color: var(--gold-light); }
 .admin-no { color: #f87171; }
 .admin-bet-match { font-weight: 700; font-size: .82rem; color: var(--gold-light); margin: 10px 0 4px; }
 .admin-bet-row { font-size: .8rem; padding: 2px 0; color: var(--text); }
+.admin-settle-block {
+  background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25);
+  border-radius: 10px; padding: 12px 14px; margin: 10px 0 6px;
+}
+.settle-prefill { font-size: .8rem; color: #93c5fd; margin-bottom: 8px; }
+.settle-grid {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.settle-grid label { display: flex; flex-direction: column; gap: 4px; font-size: .8rem; font-weight: 600; }
+.settle-grid input[type=number] {
+  width: 56px; text-align: center; padding: 6px;
+  background: var(--dark3); border: 1px solid var(--card-border);
+  border-radius: 8px; color: var(--text); font-size: 1rem;
+}
+.settle-dash { font-size: 1.2rem; font-weight: 700; color: var(--text-muted); }
+.settle-first { display: flex; align-items: center; gap: 8px; font-size: .82rem; margin-bottom: 10px; flex-wrap: wrap; }
+.settle-first select {
+  background: var(--dark3); border: 1px solid var(--card-border);
+  border-radius: 8px; padding: 5px 8px; color: var(--text); font-size: .82rem;
+}
+.settle-confirm {
+  background: var(--green); color: #fff; border: none; border-radius: 8px;
+  padding: 9px 16px; font-weight: 700; cursor: pointer; font-size: .88rem; width: 100%;
+}
+.settle-confirm:hover { filter: brightness(1.1); }
+.settle-warn { font-size: .75rem; color: var(--text-muted); margin-top: 6px; }
 .admin-del {
   background: none; border: 1px solid rgba(239,68,68,.3);
   border-radius: 6px; padding: 3px 7px; cursor: pointer; font-size: .85rem;
@@ -2932,7 +2958,7 @@ function _renderAdminDashboard(el) {
   });
   attHtml += `</div>`;
 
-  // ── Paris ──
+  // ── Paris + règlement ──
   let betsHtml = `<div class="admin-section-title">🎰 Paris du groupe
     <button class="admin-reprice" onclick="repriceOpenBets()" title="Recaler les paris en cours sur les cotes actuelles">🔄 Recaler les cotes</button>
     </div><div class="admin-bets-list">`;
@@ -2940,9 +2966,38 @@ function _renderAdminDashboard(el) {
   MATCHES.filter((m) => !m.ceremony).forEach((m) => {
     const mb = bets[m.id] || {};
     const arr = Object.values(mb);
+    const settled = results[m.id]?.settled;
+
+    // Formulaire de règlement manuel pour les matchs passés non réglés
+    if (isPast(m) && !settled) {
+      const ls = liveScores[m.id];
+      const hv = ls?.home ?? 0;
+      const av = ls?.away ?? 0;
+      const prefill = (ls?.home != null) ? `<p class="settle-prefill">⚽ Score détecté : ${hv}-${av} — vérifie avant de valider</p>` : "";
+      betsHtml += `
+        <div class="admin-settle-block">
+          <div class="admin-bet-match">⚠️ ${m.home.name} vs ${m.away.name} — à régler</div>
+          ${prefill}
+          <div class="settle-grid">
+            <label>${m.home.name}<input type="number" id="hs-${m.id}" min="0" value="${hv}" /></label>
+            <span class="settle-dash">-</span>
+            <label>${m.away.name}<input type="number" id="as-${m.id}" min="0" value="${av}" /></label>
+          </div>
+          <div class="settle-first">
+            <span>Première équipe à marquer :</span>
+            <select id="fs-${m.id}">
+              <option value="home">${m.home.name}</option>
+              <option value="away">${m.away.name}</option>
+              <option value="none">Aucun but / 0-0</option>
+            </select>
+          </div>
+          <button class="settle-confirm" onclick="settleMatch('${m.id}').then(()=>renderAdminDashboard())">✅ Valider & régler les paris</button>
+        </div>`;
+    }
+
     if (!arr.length) return;
     totalBets += arr.length;
-    betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}</div>`;
+    betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}${settled ? " ✅" : ""}</div>`;
     arr.forEach((b) => {
       const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
       betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</div>`;
@@ -2984,6 +3039,13 @@ function _renderAdminDashboard(el) {
   if (initUser()) {
     renderMatches();
     autoEnableNotifications();
+    // Au chargement, tente de régler automatiquement les matchs passés non réglés
+    // (au cas où personne n'avait l'app ouverte quand le match s'est terminé)
+    setTimeout(async () => {
+      await refreshLiveScores(false);
+      MATCHES.filter((m) => !m.ceremony && isPast(m) && !results[m.id]?.settled)
+        .forEach((m) => autoSettleFromLive(m.id));
+    }, 3000);
   }
 })();
 </script>
