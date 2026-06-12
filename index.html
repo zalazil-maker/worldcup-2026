@@ -2061,6 +2061,7 @@ function renderMatchBetting(matchId) {
     } else {
       const draft = betDraft[matchId];
       const ls = liveScores[matchId];
+      const real = liveOdds[matchId];
       const isLive = ls && LIVE_STATUSES.includes(ls.status);
       const isDone = ls && DONE_STATUSES.includes(ls.status);
 
