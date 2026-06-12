@@ -2499,6 +2499,44 @@ async function forceResettleMatch(matchId) {
   renderLeaderboard();
 }
 
+// Delete a bet from the admin panel.
+// If the bet was "open" or "lost": refund the stake.
+// If the bet was "won": deduct the potentialWin (they already got paid).
+async function adminDeleteBet(matchId, betId) {
+  const bet = bets[matchId]?.[betId];
+  if (!bet) { showToast("Pari introuvable."); return; }
+  const refundLabel = bet.status === "won"
+    ? `Ce pari a déjà été gagné (${bet.potentialWin?.toFixed(0)}€ crédités). Supprimer quand même et déduire les gains ?`
+    : `Supprimer ce pari et rembourser ${bet.stake?.toFixed(0)}€ à ${bet.name || "?"} ?`;
+  if (!confirm(refundLabel)) return;
+
+  if (db) {
+    try {
+      const { doc, deleteDoc, runTransaction } = window._firebaseModules;
+      await runTransaction(db, async (tx) => {
+        const betRef = doc(db, "matches", matchId, "bets", betId);
+        const uref   = doc(db, "users", bet.userId);
+        const usnap  = await tx.get(uref);
+        const cur    = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+        let newBal   = cur;
+        if (bet.status === "open" || bet.status === "lost") newBal = +(cur + (bet.stake ?? 0)).toFixed(2);
+        if (bet.status === "won") newBal = +(cur - (bet.potentialWin ?? 0)).toFixed(2);
+        tx.set(uref, { balance: newBal }, { merge: true });
+        tx.delete(betRef);
+      });
+    } catch (err) { console.error(err); showToast("Erreur lors de la suppression."); return; }
+  } else {
+    const u = users.find((x) => x.id === bet.userId);
+    if (u) {
+      if (bet.status === "open" || bet.status === "lost") u.balance = +(u.balance + (bet.stake ?? 0)).toFixed(2);
+      if (bet.status === "won") u.balance = +(u.balance - (bet.potentialWin ?? 0)).toFixed(2);
+    }
+    delete bets[matchId][betId];
+  }
+  showToast(`🗑️ Pari supprimé.`);
+  renderLeaderboard();
+}
+
 // ════════════════════════════════════════════════════════════
 //  SCORES EN DIRECT
 // ════════════════════════════════════════════════════════════
@@ -3329,9 +3367,12 @@ function _renderAdminDashboard(el) {
       </div>
       <button class="settle-confirm" style="background:#7c3aed;margin-top:8px" onclick="forceResettleMatch('${m.id}').then(()=>renderAdminDashboard())">🔧 Appliquer la correction</button>
     </div>` : ""}`;
-    arr.forEach((b) => {
+    Object.entries(mb).forEach(([bid, b]) => {
       const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
-      betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</div>`;
+      betsHtml += `<div class="admin-bet-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</span>
+        <button class="admin-del" onclick="adminDeleteBet('${m.id}','${bid}').then(()=>renderAdminDashboard())" title="Supprimer ce pari">🗑</button>
+      </div>`;
     });
   });
   if (!totalBets) betsHtml += `<div class="admin-dim">Aucun pari encore.</div>`;
