@@ -458,6 +458,22 @@ main {
   color: var(--gold-light); font-weight: 600;
 }
 .bringing-chip .chip-icon { font-size: 1rem; }
+.bringing-chip-special {
+  border-color: var(--gold) !important;
+  background: linear-gradient(135deg, rgba(201,162,39,.18), rgba(240,192,64,.08));
+  color: var(--gold-light);
+  font-weight: 700;
+  animation: miskeySpark 2.5s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(201,162,39,.35);
+}
+.bringing-chip-special.selected {
+  background: linear-gradient(135deg, rgba(201,162,39,.4), rgba(240,192,64,.25));
+  box-shadow: 0 0 14px rgba(201,162,39,.6);
+}
+@keyframes miskeySpark {
+  0%, 100% { box-shadow: 0 0 8px rgba(201,162,39,.35); }
+  50%       { box-shadow: 0 0 18px rgba(240,192,64,.7), 0 0 30px rgba(201,162,39,.3); }
+}
 
 /* Coordination box (what others bring) */
 .coord-box {
@@ -1082,6 +1098,8 @@ const BRINGING_OPTIONS = [
   { id: "viande",   label: "Viande BBQ",  icon: "🥩" },
   { id: "snacks",   label: "Snacks",      icon: "🍟" },
   { id: "dessert",  label: "Dessert",     icon: "🎂" },
+  { id: "pain",     label: "Pain",        icon: "🍞" },
+  { id: "miskey",   label: "Croquettes pour Miskey", icon: "🐱", special: true },
 ];
 
 // ── Niveau des équipes (type classement FIFA / Elo) ────────
@@ -1899,7 +1917,7 @@ function renderMatchVotes(matchId) {
       bringFormEl.classList.add("visible");
       const selected = myVote.bringing || [];
       const chipsHtml = BRINGING_OPTIONS.map((opt) => `
-        <button class="bringing-chip${selected.includes(opt.id) ? " selected" : ""}"
+        <button class="bringing-chip${selected.includes(opt.id) ? " selected" : ""}${opt.special ? " bringing-chip-special" : ""}"
           data-id="${opt.id}" onclick="toggleBringing('${matchId}','${opt.id}')">
           <span class="chip-icon">${opt.icon}</span>${opt.label}
         </button>`).join("");
