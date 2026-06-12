@@ -283,6 +283,15 @@ main {
   background: linear-gradient(90deg, rgba(201,162,39,.4), transparent);
 }
 
+.past-toggle-btn {
+  width: 100%; background: var(--dark3); border: 1px dashed var(--card-border);
+  color: var(--text-muted); border-radius: 10px; padding: 10px;
+  font-size: .88rem; cursor: pointer; margin-bottom: 12px;
+  transition: border-color .2s, color .2s;
+}
+.past-toggle-btn:hover { border-color: var(--gold); color: var(--text); }
+.match-card.past-hidden { display: none; }
+
 /* ── Match card ───────────────────────────────────────────── */
 .match-card {
   background: var(--card);
@@ -296,7 +305,8 @@ main {
   border-color: rgba(201,162,39,.35);
   box-shadow: 0 4px 24px rgba(201,162,39,.08);
 }
-.match-card.past { opacity: .55; }
+.match-card.past { opacity: .5; }
+.match-card.live-now { opacity: 1 !important; border-color: rgba(239,68,68,.6) !important; box-shadow: 0 0 22px rgba(239,68,68,.22) !important; }
 .match-card.today { border-color: var(--gold); box-shadow: 0 0 20px rgba(201,162,39,.15); }
 .match-card.today .match-header { background: linear-gradient(90deg, rgba(201,162,39,.18), transparent); }
 
@@ -1008,6 +1018,11 @@ footer strong { color: var(--gold-light); }
   <div id="leaderboard"></div>
 
   <div class="section-title">⚽ Programme des matchs</div>
+  <div id="past-matches-toggle" style="display:none">
+    <button class="past-toggle-btn" onclick="togglePastMatches()">
+      <span id="past-toggle-label">📂 Voir les matchs passés</span>
+    </button>
+  </div>
   <div id="matches-container">
     <!-- Cards injected by JS -->
   </div>
@@ -1793,12 +1808,34 @@ async function saveVote(matchId, coming, bringing, other) {
 
 // ── Render all matches ─────────────────────────────────────
 let _subscribed = false;
+let _pastVisible = false;
+
+function togglePastMatches() {
+  _pastVisible = !_pastVisible;
+  document.querySelectorAll(".match-card.past-hidden-able").forEach((el) => {
+    el.classList.toggle("past-hidden", !_pastVisible);
+  });
+  const label = document.getElementById("past-toggle-label");
+  if (label) label.textContent = _pastVisible ? "📁 Masquer les matchs passés" : "📂 Voir les matchs passés";
+}
+
 function renderMatches() {
   const container = document.getElementById("matches-container");
   container.innerHTML = "";
   MATCHES.forEach((m) => {
-    container.appendChild(buildMatchCard(m));
+    const card = buildMatchCard(m);
+    // Matches that are past AND settled → collapse by default
+    if (isPast(m) && results[m.id]?.settled) {
+      card.classList.add("past-hidden-able", "past-hidden");
+    }
+    container.appendChild(card);
   });
+
+  // Show toggle button only if there are collapsible past matches
+  const hasPast = MATCHES.some((m) => isPast(m) && results[m.id]?.settled);
+  const toggleWrap = document.getElementById("past-matches-toggle");
+  if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
+
   if (db && !_subscribed) {
     _subscribed = true;
     MATCHES.forEach((m) => subscribeToMatch(m.id));
@@ -2406,6 +2443,62 @@ async function settleMatch(matchId) {
   renderLeaderboard();
 }
 
+// Force-re-settle a match that was already settled with a wrong score.
+// Corrects won→lost and lost→won, adjusting balances accordingly.
+async function forceResettleMatch(matchId) {
+  const hs = parseInt(document.getElementById(`rhs-${matchId}`)?.value, 10);
+  const as = parseInt(document.getElementById(`ras-${matchId}`)?.value, 10);
+  const fs = document.getElementById(`rfs-${matchId}`)?.value;
+  if (isNaN(hs) || isNaN(as)) { showToast("Entre un score valide."); return; }
+  if (!confirm(`Corriger le résultat ${matchId} → ${hs}-${as} ? Cette action recalcule tous les paris.`)) return;
+
+  const newRes = { settled: true, homeScore: hs, awayScore: as, firstScorer: fs || "none",
+    settledBy: currentUser?.name || "?", settledAt: Date.now() };
+  const matchBets = bets[matchId] || {};
+
+  if (db) {
+    try {
+      const { doc, setDoc, runTransaction } = window._firebaseModules;
+      for (const [betId, bet] of Object.entries(matchBets)) {
+        const shouldWin = betWins(bet, newRes);
+        const didWin   = bet.status === "won";
+        if (shouldWin === didWin) continue; // no change needed
+        await runTransaction(db, async (tx) => {
+          const betRef = doc(db, "matches", matchId, "bets", betId);
+          const uref   = doc(db, "users", bet.userId);
+          const usnap  = await tx.get(uref);
+          const cur    = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+          let newBal   = cur;
+          if (shouldWin && !didWin) newBal = +(cur + bet.potentialWin).toFixed(2);  // was lost, now win
+          if (!shouldWin && didWin) newBal = +(cur - bet.potentialWin).toFixed(2);  // was won, now lost
+          tx.set(uref, { balance: newBal }, { merge: true });
+          tx.set(betRef, { status: shouldWin ? "won" : "lost" }, { merge: true });
+        });
+      }
+      await setDoc(doc(db, "results", matchId), newRes);
+    } catch (err) { console.error(err); showToast("Erreur lors de la correction."); return; }
+  } else {
+    Object.entries(matchBets).forEach(([, bet]) => {
+      const shouldWin = betWins(bet, newRes);
+      const didWin   = bet.status === "won";
+      if (shouldWin === didWin) return;
+      if (shouldWin && !didWin) {
+        const u = users.find((x) => x.id === bet.userId);
+        if (u) u.balance = +(u.balance + bet.potentialWin).toFixed(2);
+        bet.status = "won";
+      } else {
+        const u = users.find((x) => x.id === bet.userId);
+        if (u) u.balance = +(u.balance - bet.potentialWin).toFixed(2);
+        bet.status = "lost";
+      }
+    });
+    results[matchId] = newRes;
+  }
+  showToast(`✅ Résultat corrigé : ${hs}-${as}. Paris mis à jour !`);
+  renderMatchBetting(matchId);
+  renderLeaderboard();
+}
+
 // ════════════════════════════════════════════════════════════
 //  SCORES EN DIRECT
 // ════════════════════════════════════════════════════════════
@@ -2461,8 +2554,11 @@ function renderLiveScore(matchId) {
   const el = document.getElementById(`live-${matchId}`);
   if (!el) return;
   const ls = liveScores[matchId];
+  const card = document.getElementById(`card-${matchId}`);
   if (!ls || (ls.home == null && ls.away == null && !LIVE_STATUSES.includes(ls.status))) {
-    el.innerHTML = ""; el.className = "live-score"; return;
+    el.innerHTML = ""; el.className = "live-score";
+    if (card) card.classList.remove("live-now");
+    return;
   }
   const st = ls.status;
   const score = `${ls.home ?? 0} - ${ls.away ?? 0}`;
@@ -2470,13 +2566,20 @@ function renderLiveScore(matchId) {
     const min = ls.progress ? ` ${ls.progress}'` : (st === "HT" ? " mi-temps" : "");
     el.className = "live-score live";
     el.innerHTML = `<span class="live-dot"></span> EN DIRECT ${score}${min}`;
+    // Live match: always visible and highlighted, even if isPast()
+    if (card) {
+      card.classList.add("live-now");
+      card.classList.remove("past-hidden", "past-hidden-able");
+    }
   } else if (DONE_STATUSES.includes(st)) {
     el.className = "live-score done";
     el.innerHTML = `🏁 Score final ${score}`;
+    if (card) card.classList.remove("live-now");
     // Auto-règlement : le match est terminé, on règle les paris si ce n'est pas fait
     autoSettleFromLive(matchId);
   } else {
     el.innerHTML = ""; el.className = "live-score";
+    if (card) card.classList.remove("live-now");
   }
 }
 
@@ -3203,9 +3306,29 @@ function _renderAdminDashboard(el) {
     const openCount = arr.filter((b) => b.status === "open").length;
     // Match settled but bets still open → race condition bug, show fix button
     const needsRettle = settled && openCount > 0;
-    betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}${settled ? " ✅" : ""}
+    const res = results[m.id];
+    const resLabel = settled ? ` (${res.homeScore ?? "?"}–${res.awayScore ?? "?"})` : "";
+    betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}${settled ? ` ✅${resLabel}` : ""}
       ${needsRettle ? `<button class="admin-reprice" style="background:#ef4444" onclick="settleOpenBets('${m.id}').then(()=>renderAdminDashboard())">⚠️ Régler ${openCount} pari(s) en attente</button>` : ""}
-    </div>`;
+      ${settled ? `<button class="admin-reprice" style="background:#7c3aed;margin-left:4px" onclick="document.getElementById('force-${m.id}').style.display=(document.getElementById('force-${m.id}').style.display==='none'?'':'none')">✏️ Corriger résultat</button>` : ""}
+    </div>
+    ${settled ? `<div id="force-${m.id}" style="display:none;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;padding:10px;margin-bottom:6px">
+      <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">Score enregistré : ${res.homeScore ?? "?"}–${res.awayScore ?? "?"}. Corriger si faux :</div>
+      <div class="settle-grid">
+        <label>${m.home.name}<input type="number" id="rhs-${m.id}" min="0" value="${res.homeScore ?? 0}" /></label>
+        <span class="settle-dash">-</span>
+        <label>${m.away.name}<input type="number" id="ras-${m.id}" min="0" value="${res.awayScore ?? 0}" /></label>
+      </div>
+      <div class="settle-first" style="margin-top:6px">
+        <span>1er buteur :</span>
+        <select id="rfs-${m.id}">
+          <option value="home"${res.firstScorer==="home"?" selected":""}>${m.home.name}</option>
+          <option value="away"${res.firstScorer==="away"?" selected":""}>${m.away.name}</option>
+          <option value="none"${res.firstScorer==="none"?" selected":""}>Aucun but</option>
+        </select>
+      </div>
+      <button class="settle-confirm" style="background:#7c3aed;margin-top:8px" onclick="forceResettleMatch('${m.id}').then(()=>renderAdminDashboard())">🔧 Appliquer la correction</button>
+    </div>` : ""}`;
     arr.forEach((b) => {
       const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
       betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</div>`;
