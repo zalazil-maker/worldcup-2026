@@ -2956,6 +2956,64 @@ async function promptBalanceAdjust(userId, userName, currentBalance) {
   }
 }
 
+// Recalcule le solde de chaque joueur from scratch à partir de l'historique des paris.
+// Corrige les doubles-crédits causés par la race condition de règlement.
+async function recalcAllBalances() {
+  if (!db) { showToast("Mode démo."); return; }
+  if (!confirm("Recalculer les soldes de TOUS les joueurs à partir de leur historique de paris ?\n\nChaque solde sera recalculé comme : 100€ de départ − toutes les mises + tous les gains.\n\nCette action corrige les éventuels doubles-crédits.")) return;
+
+  try {
+    const { collection, getDocs, doc, setDoc } = window._firebaseModules;
+
+    // 1. Charge tous les paris de tous les matchs
+    const stakesByUser   = {}; // userId → total misé
+    const winsByUser     = {}; // userId → total gagné (potentialWin des paris gagnés)
+
+    for (const m of MATCHES) {
+      if (m.ceremony) continue;
+      const bSnap = await getDocs(collection(db, "matches", m.id, "bets"));
+      bSnap.forEach((d) => {
+        const b = d.data();
+        if (!b.userId) return;
+        stakesByUser[b.userId] = (stakesByUser[b.userId] || 0) + (b.stake || 0);
+        if (b.status === "won") {
+          winsByUser[b.userId] = (winsByUser[b.userId] || 0) + (b.potentialWin || 0);
+        }
+      });
+    }
+
+    // 2. Charge tous les joueurs
+    const uSnap = await getDocs(collection(db, "users"));
+    let updated = 0;
+    const results = [];
+    for (const d of uSnap.docs) {
+      const uid = d.id;
+      const name = d.data().name || uid;
+      const stakes = stakesByUser[uid] || 0;
+      const wins   = winsByUser[uid]   || 0;
+      const correct = +(START_BALANCE - stakes + wins).toFixed(2);
+      const current = +(d.data().balance ?? START_BALANCE).toFixed(2);
+      if (Math.abs(correct - current) > 0.005) {
+        await setDoc(doc(db, "users", uid), { balance: correct }, { merge: true });
+        results.push(`${name} : ${current.toFixed(2)}€ → ${correct.toFixed(2)}€`);
+        updated++;
+      }
+    }
+
+    if (updated) {
+      showToast(`✅ ${updated} solde(s) corrigé(s).`);
+      console.log("Corrections :\n" + results.join("\n"));
+    } else {
+      showToast("✅ Tous les soldes étaient déjà corrects.");
+    }
+    renderAdminDashboard();
+    renderLeaderboard();
+  } catch (err) {
+    console.error(err);
+    showToast("Erreur lors du recalcul.");
+  }
+}
+
 async function repriceOpenBets() {
   if (!db) { showToast("Mode démo : recalcul non synchronisé."); return; }
   // Compte les paris en cours
@@ -3067,6 +3125,7 @@ function _renderAdminDashboard(el) {
   // ── Paris + règlement ──
   let betsHtml = `<div class="admin-section-title">🎰 Paris du groupe
     <button class="admin-reprice" onclick="repriceOpenBets()" title="Recaler les paris en cours sur les cotes actuelles">🔄 Recaler les cotes</button>
+    <button class="admin-reprice" style="background:#ef4444;margin-right:4px" onclick="recalcAllBalances()" title="Recalculer tous les soldes depuis l'historique">🔧 Corriger soldes</button>
     </div><div class="admin-bets-list">`;
   let totalBets = 0;
   MATCHES.filter((m) => !m.ceremony).forEach((m) => {
