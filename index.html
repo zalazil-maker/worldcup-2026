@@ -124,9 +124,22 @@ body::before {
 header {
   position: relative; z-index: 1;
   text-align: center;
-  padding: 40px 20px 24px;
-  background: linear-gradient(180deg, rgba(201,162,39,.12) 0%, transparent 100%);
+  padding: 0 0 24px;
   border-bottom: 1px solid rgba(201,162,39,.2);
+  overflow: hidden;
+}
+
+.header-bg {
+  width: 100%; max-height: 340px; object-fit: cover; object-position: center top;
+  display: block;
+  mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+}
+
+.header-content {
+  position: relative; z-index: 2;
+  margin-top: -60px;
+  padding: 0 20px;
 }
 
 .trophy {
@@ -941,10 +954,12 @@ footer strong { color: var(--gold-light); }
 
 <!-- Header -->
 <header>
-  <span class="trophy">🏆</span>
-  <h1>Coupe du Monde 2026<br>Les matchs qu'on diffuse !</h1>
-  <p>Votez, dites ce que vous ramenez, et profitez du show !</p>
-  <div class="location-badge">📍 31 Allée Pichon des Prés, 94600 Choisy-le-Roi</div>
+  <img class="header-bg" src="miskey.png" alt="Miskey FIFA World Cup 2026" />
+  <div class="header-content">
+    <h1>Coupe du Monde 2026<br>Les matchs qu'on diffuse !</h1>
+    <p>Votez, dites ce que vous ramenez, et profitez du show !</p>
+    <div class="location-badge">📍 31 Allée Pichon des Prés, 94600 Choisy-le-Roi</div>
+  </div>
 </header>
 
 <!-- Identity bar -->
