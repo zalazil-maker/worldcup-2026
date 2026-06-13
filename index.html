@@ -1493,6 +1493,12 @@ function isPast(m) {
   return matchDateTime(m) < new Date();
 }
 
+// A match is considered "over" (can be collapsed) only after 2h10m from kickoff,
+// giving time for the live score API to catch up even without a signal.
+function isOver(m) {
+  return Date.now() - matchDateTime(m).getTime() > 130 * 60 * 1000;
+}
+
 function userId() {
   let id = localStorage.getItem("wc2026_uid");
   if (!id) {
@@ -1822,13 +1828,13 @@ function applyPastHiding() {
     if (!card) return;
     const isLive = liveScores[m.id] && LIVE_STATUSES.includes(liveScores[m.id].status);
     if (isLive) return; // live match is always visible
-    const shouldCollapse = isPast(m) && (m.ceremony || results[m.id]?.settled);
+    const shouldCollapse = isOver(m) && (m.ceremony || results[m.id]?.settled);
     card.classList.toggle("past-hidden-able", shouldCollapse);
     card.classList.toggle("past-hidden", shouldCollapse && !_pastVisible);
   });
   const hasPast = MATCHES.some((m) => {
     const isLive = liveScores[m.id] && LIVE_STATUSES.includes(liveScores[m.id].status);
-    return !isLive && isPast(m) && (m.ceremony || results[m.id]?.settled);
+    return !isLive && isOver(m) && (m.ceremony || results[m.id]?.settled);
   });
   const toggleWrap = document.getElementById("past-matches-toggle");
   if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
