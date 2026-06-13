@@ -726,8 +726,12 @@ footer strong { color: var(--gold-light); }
   padding: 12px;
 }
 .betslip-sel { font-size: .9rem; font-weight: 700; margin-bottom: 10px; }
+.betslip-leg { font-size: .9rem; font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between; }
+.betslip-combined-odds { font-size: .85rem; color: var(--gold-light); margin: 6px 0 10px; padding: 4px 8px; background: rgba(201,162,39,.1); border-radius: 6px; }
 .betslip-odd { color: var(--gold-light); }
-.betslip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.betslip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.betslip-clear { margin-top: 8px; text-align: right; }
+.betslip-clear button { background: none; border: none; color: var(--text-muted); font-size: .8rem; cursor: pointer; }
 .stake-input {
   width: 100px; background: var(--dark); border: 1.5px solid var(--card-border);
   border-radius: 8px; padding: 8px 12px; color: var(--text);
@@ -2183,7 +2187,7 @@ function renderMatchBetting(matchId) {
           : ["home", "away", "none"];
         opts.forEach((sel) => {
           const o = odds[market][sel];
-          const active = draft && draft.market === market && draft.selection === sel;
+          const active = draft && draft.legs?.some((l) => l.market === market && l.selection === sel);
           const short = market === "result" ? (sel === "home" ? "1" : sel === "draw" ? "N" : "2")
             : market === "totals" ? (sel === "over" ? "+2,5" : "−2,5")
             : (sel === "home" ? m.home.name : sel === "away" ? m.away.name : "Aucun");
@@ -2196,14 +2200,23 @@ function renderMatchBetting(matchId) {
       });
       // Bulletin de pari
       if (draft) {
+        const legs = draft.legs || [];
+        const isCombined = legs.length > 1;
+        const legsHtml = legs.map((l) =>
+          `<div class="betslip-leg">${l.label} <span class="betslip-odd">@ ${l.odds.toFixed(2)}</span></div>`
+        ).join("");
+        const combinedLabel = isCombined
+          ? `<div class="betslip-combined-odds">Cote combinée : <strong>${draft.odds.toFixed(2)}</strong></div>`
+          : "";
         html += `<div class="betslip">
-          <div class="betslip-sel">${selectionLabel(m, draft.market, draft.selection)} <span class="betslip-odd">@ ${draft.odds.toFixed(2)}</span></div>
+          ${legsHtml}${combinedLabel}
           <div class="betslip-row">
             <input type="number" id="stake-${matchId}" class="stake-input" min="1" step="1"
               max="${maxStake}" placeholder="Mise €" oninput="updatePotential('${matchId}')" />
             <span class="potential" id="potential-${matchId}">Gain : —</span>
             <button class="place-bet-btn" onclick="placeBet('${matchId}')">Parier 🎯</button>
           </div>
+          <div class="betslip-clear"><button onclick="betDraft['${matchId}']=undefined;renderMatchBetting('${matchId}')">✕ Effacer</button></div>
         </div>`;
       }
       } // fin else (pas live/done)
@@ -2231,9 +2244,23 @@ function renderMatchBetting(matchId) {
 }
 
 // ── Sélection d'un pari ────────────────────────────────────
-function selectBet(matchId, market, selection, odds) {
+function selectBet(matchId, market, selection, oddsVal) {
   const m = MATCHES.find((x) => x.id === matchId);
-  betDraft[matchId] = { market, selection, odds, label: selectionLabel(m, market, selection) };
+  if (!betDraft[matchId]) betDraft[matchId] = { legs: [] };
+  const legs = betDraft[matchId].legs;
+  const existing = legs.findIndex((l) => l.market === market);
+  const leg = { market, selection, odds: oddsVal, label: selectionLabel(m, market, selection) };
+  if (existing >= 0) {
+    if (legs[existing].selection === selection) {
+      legs.splice(existing, 1); // deselect same button
+    } else {
+      legs[existing] = leg; // replace same market
+    }
+  } else {
+    legs.push(leg);
+  }
+  if (!legs.length) delete betDraft[matchId];
+  else betDraft[matchId].odds = +legs.reduce((acc, l) => acc * l.odds, 1).toFixed(2);
   renderMatchBetting(matchId);
 }
 
@@ -2243,7 +2270,8 @@ function updatePotential(matchId) {
   const out = document.getElementById(`potential-${matchId}`);
   if (!draft || !input || !out) return;
   const stake = parseFloat(input.value) || 0;
-  out.textContent = stake > 0 ? `Gain : ${(stake * draft.odds).toFixed(2)} €` : "Gain : —";
+  const combinedOdds = draft.odds;
+  out.textContent = stake > 0 ? `Gain : ${(stake * combinedOdds).toFixed(2)} €` : "Gain : —";
 }
 
 // ── Placement d'un pari ────────────────────────────────────
@@ -2269,9 +2297,15 @@ async function placeBet(matchId) {
 
   const potentialWin = +(stake * draft.odds).toFixed(2);
   const betId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random().toString(36).slice(2));
+  const isCombined = draft.legs.length > 1;
+  const combinedLabel = draft.legs.map((l) => l.label).join(" + ");
   const bet = {
     userId: currentUser.id, name: currentUser.name,
-    market: draft.market, selection: draft.selection, label: draft.label,
+    legs: draft.legs,
+    // keep single-leg fields for backward compat with betWins
+    market: isCombined ? "combined" : draft.legs[0].market,
+    selection: isCombined ? "combined" : draft.legs[0].selection,
+    label: isCombined ? combinedLabel : draft.legs[0].label,
     stake: +stake.toFixed(2), odds: draft.odds, potentialWin,
     status: "open", createdAt: Date.now(),
   };
@@ -2379,19 +2413,26 @@ function openSettleForm(matchId) {
 }
 
 // ── Règlement des paris ────────────────────────────────────
-function betWins(bet, res) {
-  if (bet.market === "result") {
+function betLegWins(leg, res) {
+  if (leg.market === "result") {
     const actual = res.homeScore > res.awayScore ? "home" : res.homeScore < res.awayScore ? "away" : "draw";
-    return bet.selection === actual;
+    return leg.selection === actual;
   }
-  if (bet.market === "totals") {
+  if (leg.market === "totals") {
     const total = res.homeScore + res.awayScore;
-    return bet.selection === "over" ? total > 2.5 : total < 2.5;
+    return leg.selection === "over" ? total > 2.5 : total < 2.5;
   }
-  if (bet.market === "firstScorer") {
-    return bet.selection === res.firstScorer;
+  if (leg.market === "firstScorer") {
+    return leg.selection === res.firstScorer;
   }
   return false;
+}
+
+function betWins(bet, res) {
+  // Combined bet: all legs must win
+  if (bet.legs?.length) return bet.legs.every((leg) => betLegWins(leg, res));
+  // Single leg (legacy)
+  return betLegWins({ market: bet.market, selection: bet.selection }, res);
 }
 
 async function settleMatch(matchId) {
