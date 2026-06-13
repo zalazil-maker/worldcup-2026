@@ -1604,6 +1604,7 @@ function subscribeToMatch(matchId) {
   unsubscribers.push(onSnapshot(resRef, (d) => {
     results[matchId] = d.exists() ? d.data() : null;
     renderMatchBetting(matchId);
+    applyPastHiding(); // re-collapse past matches once result is known
   }));
 }
 
@@ -1810,6 +1811,25 @@ async function saveVote(matchId, coming, bringing, other) {
 let _subscribed = false;
 let _pastVisible = false;
 
+// Apply hide/show logic for past matches. Called after results load from Firestore.
+function applyPastHiding() {
+  MATCHES.forEach((m) => {
+    const card = document.getElementById(`card-${m.id}`);
+    if (!card) return;
+    const isLive = liveScores[m.id] && LIVE_STATUSES.includes(liveScores[m.id].status);
+    if (isLive) return; // live match is always visible
+    const shouldCollapse = isPast(m) && (m.ceremony || results[m.id]?.settled);
+    card.classList.toggle("past-hidden-able", shouldCollapse);
+    card.classList.toggle("past-hidden", shouldCollapse && !_pastVisible);
+  });
+  const hasPast = MATCHES.some((m) => {
+    const isLive = liveScores[m.id] && LIVE_STATUSES.includes(liveScores[m.id].status);
+    return !isLive && isPast(m) && (m.ceremony || results[m.id]?.settled);
+  });
+  const toggleWrap = document.getElementById("past-matches-toggle");
+  if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
+}
+
 function togglePastMatches() {
   _pastVisible = !_pastVisible;
   document.querySelectorAll(".match-card.past-hidden-able").forEach((el) => {
@@ -1823,18 +1843,11 @@ function renderMatches() {
   const container = document.getElementById("matches-container");
   container.innerHTML = "";
   MATCHES.forEach((m) => {
-    const card = buildMatchCard(m);
-    // Matches that are past AND settled → collapse by default
-    if (isPast(m) && results[m.id]?.settled) {
-      card.classList.add("past-hidden-able", "past-hidden");
-    }
-    container.appendChild(card);
+    container.appendChild(buildMatchCard(m));
   });
 
-  // Show toggle button only if there are collapsible past matches
-  const hasPast = MATCHES.some((m) => isPast(m) && results[m.id]?.settled);
-  const toggleWrap = document.getElementById("past-matches-toggle");
-  if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
+  // Apply hiding immediately (Firestore may not be loaded yet, will re-apply on each result snapshot)
+  applyPastHiding();
 
   if (db && !_subscribed) {
     _subscribed = true;
