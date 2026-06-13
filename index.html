@@ -2537,6 +2537,40 @@ async function adminDeleteBet(matchId, betId) {
   renderLeaderboard();
 }
 
+// Flip a bet between won and lost, adjusting the player's balance.
+async function adminFlipBet(matchId, betId, newStatus) {
+  const bet = bets[matchId]?.[betId];
+  if (!bet) { showToast("Pari introuvable."); return; }
+  const label = newStatus === "won"
+    ? `Marquer ce pari comme GAGNÉ et créditer ${bet.potentialWin?.toFixed(0)}€ à ${bet.name || "?"} ?`
+    : `Marquer ce pari comme PERDU et déduire ${bet.potentialWin?.toFixed(0)}€ de ${bet.name || "?"} ?`;
+  if (!confirm(label)) return;
+
+  if (db) {
+    try {
+      const { doc, runTransaction } = window._firebaseModules;
+      await runTransaction(db, async (tx) => {
+        const betRef = doc(db, "matches", matchId, "bets", betId);
+        const uref   = doc(db, "users", bet.userId);
+        const usnap  = await tx.get(uref);
+        const cur    = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+        const delta  = newStatus === "won" ? +(bet.potentialWin ?? 0) : -(bet.potentialWin ?? 0);
+        tx.set(uref, { balance: +(cur + delta).toFixed(2) }, { merge: true });
+        tx.set(betRef, { status: newStatus }, { merge: true });
+      });
+    } catch (err) { console.error(err); showToast("Erreur."); return; }
+  } else {
+    const u = users.find((x) => x.id === bet.userId);
+    if (u) {
+      const delta = newStatus === "won" ? +(bet.potentialWin ?? 0) : -(bet.potentialWin ?? 0);
+      u.balance = +(u.balance + delta).toFixed(2);
+    }
+    bet.status = newStatus;
+  }
+  showToast(newStatus === "won" ? "✅ Pari marqué gagné !" : "❌ Pari marqué perdu.");
+  renderLeaderboard();
+}
+
 // ════════════════════════════════════════════════════════════
 //  SCORES EN DIRECT
 // ════════════════════════════════════════════════════════════
@@ -3369,9 +3403,14 @@ function _renderAdminDashboard(el) {
     </div>` : ""}`;
     Object.entries(mb).forEach(([bid, b]) => {
       const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
+      const flipBtn = b.status === "lost"
+        ? `<button class="admin-del" style="background:rgba(74,222,128,.15);border-color:#4ade80;color:#4ade80" onclick="adminFlipBet('${m.id}','${bid}','won').then(()=>renderAdminDashboard())" title="Marquer comme gagné">✅</button>`
+        : b.status === "won"
+        ? `<button class="admin-del" style="background:rgba(239,68,68,.15);border-color:#ef4444;color:#ef4444" onclick="adminFlipBet('${m.id}','${bid}','lost').then(()=>renderAdminDashboard())" title="Marquer comme perdu">❌</button>`
+        : "";
       betsHtml += `<div class="admin-bet-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <span>${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</span>
-        <button class="admin-del" onclick="adminDeleteBet('${m.id}','${bid}').then(()=>renderAdminDashboard())" title="Supprimer ce pari">🗑</button>
+        <span style="display:flex;gap:4px">${flipBtn}<button class="admin-del" onclick="adminDeleteBet('${m.id}','${bid}').then(()=>renderAdminDashboard())" title="Supprimer ce pari">🗑</button></span>
       </div>`;
     });
   });
