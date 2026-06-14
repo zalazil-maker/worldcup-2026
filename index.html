@@ -1555,7 +1555,7 @@ function changeName() {
           (d.data().name || "").toLowerCase() === name.toLowerCase()
         );
         if (takenBy) {
-          setModalError(`❌ "${name}" est déjà pris — essaie un autre surnom.`);
+          setModalError(`❌ "${name}" est déjà utilisé par quelqu'un d'autre.`);
           btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
           return;
         }
@@ -3059,19 +3059,26 @@ function setupNameModal() {
     btn.textContent = "Vérification…";
     clearModalError();
 
-    // ── Check name uniqueness in Firebase ──────────────────
+    // ── Check name uniqueness / account recovery in Firebase ──
     if (db) {
       try {
         const { collection, getDocs } = window._firebaseModules;
         const snap = await getDocs(collection(db, "users"));
         const myUid = userId();
-        const takenBy = snap.docs.find((d) =>
+        const existing = snap.docs.find((d) =>
           d.id !== myUid &&
           (d.data().name || "").toLowerCase() === name.toLowerCase()
         );
-        if (takenBy) {
-          setModalError(`❌ "${name}" est déjà pris — essaie "${name}2" ou un surnom.`);
-          btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
+        if (existing) {
+          // Known player lost their localStorage → restore their account
+          localStorage.setItem("wc2026_uid", existing.id);
+          localStorage.setItem("wc2026_name", name);
+          currentUser = { id: existing.id, name };
+          document.getElementById("name-modal").classList.add("hidden");
+          updateIdentityBar();
+          renderMatches();
+          autoEnableNotifications();
+          showToast(`✅ Compte restauré ! Bon retour ${name} 🎉`);
           return;
         }
       } catch (_) { /* hors-ligne → on laisse passer */ }
