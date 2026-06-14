@@ -1576,8 +1576,9 @@ function changeName() {
 async function initFirebase() {
   if (typeof FIREBASE_ENABLED === "undefined" || !FIREBASE_ENABLED) return;
   try {
-    // Attend que les modules Firebase (chargés en différé) soient prêts
-    await window._firebaseReady;
+    // Attend que les modules Firebase (chargés en différé) soient prêts — timeout 8s
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("firebase-timeout")), 8000));
+    await Promise.race([window._firebaseReady, timeout]);
     const { initializeApp, getFirestore } = window._firebaseModules;
     window._firebaseApp = initializeApp(FIREBASE_CONFIG);
     db = getFirestore(window._firebaseApp);
@@ -3548,9 +3549,9 @@ function _renderAdminDashboard(el) {
 (async () => {
   await registerSW();
   setupInstallBanner();
+  setupNameModal(); // must run before Firebase wait — button needs its handler immediately
   await initFirebase();
   trackInstall();
-  setupNameModal();
 
   if (initUser()) {
     renderMatches();
