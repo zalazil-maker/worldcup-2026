@@ -2559,7 +2559,46 @@ async function forceResettleMatch(matchId) {
   renderLeaderboard();
 }
 
-// Delete a bet from the admin panel.
+// Cancel a premature settlement: reopen all bets and reverse payouts.
+async function adminUnsettleMatch(matchId) {
+  if (!confirm("Annuler le règlement de ce match ? Les paris gagnés seront déduits et tous les paris repasseront en ⏳ En cours.")) return;
+  const matchBets = bets[matchId] || {};
+
+  if (db) {
+    try {
+      const { doc, deleteDoc, runTransaction } = window._firebaseModules;
+      // Reverse won bets (deduct potentialWin already credited)
+      for (const [betId, bet] of Object.entries(matchBets)) {
+        if (bet.status === "won") {
+          await runTransaction(db, async (tx) => {
+            const uref = doc(db, "users", bet.userId);
+            const usnap = await tx.get(uref);
+            const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+            tx.set(uref, { balance: +(cur - (bet.potentialWin ?? 0)).toFixed(2) }, { merge: true });
+            tx.set(doc(db, "matches", matchId, "bets", betId), { status: "open" }, { merge: true });
+          });
+        } else if (bet.status === "lost") {
+          const { doc: d2, setDoc } = window._firebaseModules;
+          await setDoc(d2(db, "matches", matchId, "bets", betId), { status: "open" }, { merge: true });
+        }
+      }
+      // Remove the result document so the match is unsettled
+      await deleteDoc(doc(db, "results", matchId));
+    } catch (err) { console.error(err); showToast("Erreur lors de l'annulation."); return; }
+  } else {
+    Object.entries(matchBets).forEach(([, bet]) => {
+      if (bet.status === "won") {
+        const u = users.find((x) => x.id === bet.userId);
+        if (u) u.balance = +(u.balance - (bet.potentialWin ?? 0)).toFixed(2);
+      }
+      bet.status = "open";
+    });
+    results[matchId] = null;
+  }
+  showToast("🔓 Règlement annulé — paris rouverts !");
+  renderMatchBetting(matchId);
+  renderLeaderboard();
+}
 // If the bet was "open" or "lost": refund the stake.
 // If the bet was "won": deduct the potentialWin (they already got paid).
 async function adminDeleteBet(matchId, betId) {
@@ -3452,6 +3491,7 @@ function _renderAdminDashboard(el) {
     betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}${settled ? ` ✅${resLabel}` : ""}
       ${needsRettle ? `<button class="admin-reprice" style="background:#ef4444" onclick="settleOpenBets('${m.id}').then(()=>renderAdminDashboard())">⚠️ Régler ${openCount} pari(s) en attente</button>` : ""}
       ${settled ? `<button class="admin-reprice" style="background:#7c3aed;margin-left:4px" onclick="document.getElementById('force-${m.id}').style.display=(document.getElementById('force-${m.id}').style.display==='none'?'':'none')">✏️ Corriger résultat</button>` : ""}
+      ${settled ? `<button class="admin-reprice" style="background:#dc2626;margin-left:4px" onclick="adminUnsettleMatch('${m.id}').then(()=>renderAdminDashboard())">🔓 Annuler règlement</button>` : ""}
     </div>
     ${settled ? `<div id="force-${m.id}" style="display:none;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;padding:10px;margin-bottom:6px">
       <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">Score enregistré : ${res.homeScore ?? "?"}–${res.awayScore ?? "?"}. Corriger si faux :</div>
