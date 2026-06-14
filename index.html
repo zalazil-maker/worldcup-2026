@@ -2840,7 +2840,6 @@ async function autoSettleFromLive(matchId) {
     updateBalanceDisplay();
   }
 
-  const m = MATCHES.find((x) => x.id === matchId);
   showToast(`🏁 Match terminé : ${m?.home.name} ${hs}-${as} ${m?.away.name} — paris réglés automatiquement !`);
   renderMatchBetting(matchId);
   renderLeaderboard();
