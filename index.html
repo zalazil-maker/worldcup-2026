@@ -1548,7 +1548,8 @@ function changeName() {
     if (db) {
       try {
         const { collection, getDocs } = window._firebaseModules;
-        const snap = await getDocs(collection(db, "users"));
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000));
+        const snap = await Promise.race([getDocs(collection(db, "users")), timeout]);
         const myUid = userId();
         const takenBy = snap.docs.find((d) =>
           d.id !== myUid &&
@@ -1559,7 +1560,7 @@ function changeName() {
           btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
           return;
         }
-      } catch (_) {}
+      } catch (_) { btn.disabled = false; btn.textContent = "C'est parti ! 🎉"; }
     }
 
     localStorage.setItem("wc2026_name", name);
@@ -3063,7 +3064,8 @@ function setupNameModal() {
     if (db) {
       try {
         const { collection, getDocs } = window._firebaseModules;
-        const snap = await getDocs(collection(db, "users"));
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000));
+        const snap = await Promise.race([getDocs(collection(db, "users")), timeout]);
         const myUid = userId();
         const existing = snap.docs.find((d) =>
           d.id !== myUid &&
@@ -3081,7 +3083,7 @@ function setupNameModal() {
           showToast(`✅ Compte restauré ! Bon retour ${name} 🎉`);
           return;
         }
-      } catch (_) { /* hors-ligne → on laisse passer */ }
+      } catch (_) { /* hors-ligne ou timeout → on continue sans vérification */ }
     }
 
     // ── Enregistrement ─────────────────────────────────────
