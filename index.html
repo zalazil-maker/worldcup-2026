@@ -3051,7 +3051,7 @@ function setupNameModal() {
   const existingName = localStorage.getItem("wc2026_name");
   if (existingName) return; // initUser() will handle it
 
-  function confirm() {
+  function submitName() {
     const name = input.value.trim();
     if (!name) { input.focus(); return; }
     if (name.length < 2) { setModalError("Prénom trop court."); return; }
@@ -3085,8 +3085,8 @@ function setupNameModal() {
     }
   }
 
-  btn.addEventListener("click", confirm);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); });
+  btn.addEventListener("click", submitName);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") submitName(); });
 }
 
 function showWelcome(name) {
