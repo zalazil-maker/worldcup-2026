@@ -2729,6 +2729,15 @@ const _autoSettling = new Set(); // évite les doubles appels
 async function autoSettleFromLive(matchId) {
   if (results[matchId]?.settled) return;
   if (_autoSettling.has(matchId)) return;
+
+  // Guard: don't auto-settle unless at least 85 minutes have elapsed since kickoff.
+  // Prevents premature settlement when the API glitches and returns "FT" mid-match.
+  const m = MATCHES.find((x) => x.id === matchId);
+  if (m && Date.now() - matchDateTime(m).getTime() < 85 * 60 * 1000) {
+    console.log(`autoSettle ${matchId}: skipped — less than 85 min since kickoff`);
+    return;
+  }
+
   _autoSettling.add(matchId);
 
   const ls = liveScores[matchId];
