@@ -3051,51 +3051,38 @@ function setupNameModal() {
   const existingName = localStorage.getItem("wc2026_name");
   if (existingName) return; // initUser() will handle it
 
-  async function confirm() {
+  function confirm() {
     const name = input.value.trim();
     if (!name) { input.focus(); return; }
     if (name.length < 2) { setModalError("Prénom trop court."); return; }
 
-    btn.disabled = true;
-    btn.textContent = "Vérification…";
-    clearModalError();
-
-    // ── Check name uniqueness / account recovery in Firebase ──
-    if (db) {
-      try {
-        const { collection, getDocs } = window._firebaseModules;
-        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000));
-        const snap = await Promise.race([getDocs(collection(db, "users")), timeout]);
-        const myUid = userId();
-        const existing = snap.docs.find((d) =>
-          d.id !== myUid &&
-          (d.data().name || "").toLowerCase() === name.toLowerCase()
-        );
-        if (existing) {
-          // Known player lost their localStorage → restore their account
-          localStorage.setItem("wc2026_uid", existing.id);
-          localStorage.setItem("wc2026_name", name);
-          currentUser = { id: existing.id, name };
-          document.getElementById("name-modal").classList.add("hidden");
-          updateIdentityBar();
-          renderMatches();
-          autoEnableNotifications();
-          showToast(`✅ Compte restauré ! Bon retour ${name} 🎉`);
-          return;
-        }
-      } catch (_) { /* hors-ligne ou timeout → on continue sans vérification */ }
-    }
-
-    // ── Enregistrement ─────────────────────────────────────
+    // ── Register immediately — never block the user ─────────
     localStorage.setItem("wc2026_name", name);
     currentUser = { id: userId(), name };
     document.getElementById("name-modal").classList.add("hidden");
     updateIdentityBar();
     renderMatches();
     autoEnableNotifications();
-
-    // ── Notification de bienvenue ──────────────────────────
     showWelcome(name);
+
+    // ── Background check: restore existing account if name matches ──
+    if (db) {
+      const { collection, getDocs } = window._firebaseModules;
+      getDocs(collection(db, "users")).then((snap) => {
+        const myUid = userId();
+        const existing = snap.docs.find((d) =>
+          d.id !== myUid &&
+          (d.data().name || "").toLowerCase() === name.toLowerCase()
+        );
+        if (existing) {
+          localStorage.setItem("wc2026_uid", existing.id);
+          localStorage.setItem("wc2026_name", name);
+          currentUser = { id: existing.id, name };
+          updateIdentityBar();
+          showToast(`✅ Compte restauré ! Bon retour ${name} 🎉`);
+        }
+      }).catch(() => {});
+    }
   }
 
   btn.addEventListener("click", confirm);
