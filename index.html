@@ -2164,12 +2164,13 @@ function renderMatchBetting(matchId) {
       const isLive = ls && LIVE_STATUSES.includes(ls.status);
       const isDone = ls && DONE_STATUSES.includes(ls.status);
 
-      // ── Paris fermés dès le coup d'envoi ──────────────────
-      if (isLive || isDone) {
-        const score = (ls.home != null && ls.away != null) ? ` (${ls.home}–${ls.away})` : "";
+      // ── Paris fermés à partir de 90' ou si match terminé ─
+      const locked = isBettingLocked(ls);
+      if (locked) {
+        const score = (ls?.home != null && ls?.away != null) ? ` (${ls.home}–${ls.away})` : "";
+        const reason = isDone ? "match terminé" : "90e minute atteinte";
         html += `<div class="bet-locked bet-locked-live">
-          🔒 Paris fermés — match en cours${score}<br>
-          <small>Les paris ne sont acceptés qu'avant le coup d'envoi.</small>
+          🔒 Paris fermés — ${reason}${score}
         </div>`;
       } else {
       const maxStake = isLive ? Math.min(LIVE_MAX_STAKE, myBalance()) : myBalance();
@@ -2294,8 +2295,7 @@ async function placeBet(matchId) {
   if (results[matchId]?.settled) { showToast("⛔ Ce match est terminé."); return; }
   const _ls = liveScores[matchId];
   const _isLive = _ls && LIVE_STATUSES.includes(_ls.status);
-  const _isDone = _ls && DONE_STATUSES.includes(_ls.status);
-  if (_isDone) { showToast("🔒 Match terminé — paris fermés."); return; }
+  if (isBettingLocked(_ls)) { showToast("🔒 Paris fermés — 90e minute atteinte ou match terminé."); return; }
   if (_isLive && stake > LIVE_MAX_STAKE) {
     showToast(`🔒 Mise max en direct : ${LIVE_MAX_STAKE} €`); return;
   }
@@ -2679,6 +2679,18 @@ let liveScores = {};  // { matchId: { home, away, status } }
 
 const LIVE_STATUSES = ["1H", "2H", "HT", "ET", "BT", "P", "LIVE", "INPLAY", "PEN LIVE"];
 const DONE_STATUSES = ["FT", "AET", "PEN", "MATCH FINISHED", "FINISHED"];
+
+// Betting closes when the match is finished OR past the 90th minute.
+// Live betting (before 90') is allowed with a stake cap.
+function isBettingLocked(ls) {
+  if (!ls) return false;
+  if (DONE_STATUSES.includes(ls.status)) return true;
+  if (LIVE_STATUSES.includes(ls.status)) {
+    const min = parseInt(ls.progress, 10);
+    return !isNaN(min) && min >= 90;
+  }
+  return false;
+}
 
 function norm(s) {
   return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z]/g, "");
