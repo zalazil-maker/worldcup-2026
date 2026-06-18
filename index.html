@@ -2155,13 +2155,18 @@ function updateBalanceDisplay() {
   if (el) el.textContent = myBalance().toFixed(2) + " €";
 }
 
+function hasBets(userId) {
+  return MATCHES.some((m) => Object.values(bets[m.id] || {}).some((b) => b.userId === userId));
+}
+
 function renderLeaderboard() {
   const el = document.getElementById("leaderboard");
   if (!el) return;
   const players = Object.entries(balances)
     .map(([id, v]) => ({ id, name: v.name, balance: v.balance ?? START_BALANCE }))
+    .filter((p) => hasBets(p.id))
     .sort((a, b) => b.balance - a.balance);
-  if (!players.length) { el.innerHTML = ""; return; }
+  if (!players.length) { el.innerHTML = "<div style='color:var(--text-muted);font-size:.85rem;padding:8px'>Aucun pari encore placé.</div>"; return; }
   const medals = ["🥇", "🥈", "🥉"];
   el.innerHTML = players.map((p, i) => `
     <div class="lb-row${p.id === currentUser?.id ? " me" : ""}">
