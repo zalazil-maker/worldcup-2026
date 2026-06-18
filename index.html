@@ -1376,20 +1376,20 @@ function computeOdds(matchId) {
   const odds = {};
 
   // ── result & totals ─────────────────────────────────────────
-  if (real?.result) {
-    // Cotes brutes Bet365 — affichées telles quelles, aucune retouche
+  const minute = isLive ? (matchMinute(matchId) ?? 45) : null;
+  const hg = isLive ? (parseInt(ls.home, 10) || 0) : 0;
+  const ag = isLive ? (parseInt(ls.away, 10) || 0) : 0;
+  const livePoisson = isLive ? inPlayProbs(matchId, hg, ag, minute) : null;
+
+  if (isLive && livePoisson) {
+    // Live match: always use Poisson model (incorporates current score + minute).
+    // API odds go stale between polls and don't reflect a 2-0 lead at 90'+.
+    const blended = blendWithBets(livePoisson, stakes.result);
+    odds.result = {};
+    for (const k in blended) odds.result[k] = toOdds(blended[k]);
+  } else if (real?.result) {
+    // Pre-match: use Bet365 API odds
     odds.result = { ...real.result };
-  } else if (isLive) {
-    // Modèle Poisson si pas de cotes réelles
-    const minute = matchMinute(matchId) ?? 45;
-    const hg = parseInt(ls.home, 10) || 0;
-    const ag = parseInt(ls.away, 10) || 0;
-    const live = inPlayProbs(matchId, hg, ag, minute);
-    if (live) {
-      const blended = blendWithBets(live, stakes.result);
-      odds.result = {};
-      for (const k in blended) odds.result[k] = toOdds(blended[k]);
-    }
   }
   if (!odds.result) {
     const blended = blendWithBets(base.result, stakes.result);
@@ -2832,11 +2832,24 @@ function renderLiveScore(matchId) {
 
 function startLivePolling() {
   refreshLiveScores(false);
-  fetchLiveOdds();                                          // vraies cotes au chargement
-  setInterval(async () => {
-    await refreshLiveScores(true);
-    fetchLiveOdds();   // vraies cotes Bet365 (bougent en direct à chaque but)
-  }, 5 * 60 * 1000);
+  fetchLiveOdds();
+
+  // Poll every 30s when any match is live, every 5 min otherwise
+  let _pollInterval = null;
+  function schedulePoll() {
+    const anyLive = MATCHES.some((m) => {
+      const ls = liveScores[m.id];
+      return ls && LIVE_STATUSES.includes(ls.status);
+    });
+    const delay = anyLive ? 30 * 1000 : 5 * 60 * 1000;
+    _pollInterval = setTimeout(async () => {
+      await refreshLiveScores(true);
+      fetchLiveOdds();
+      MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
+      schedulePoll();
+    }, delay);
+  }
+  schedulePoll();
 }
 
 // ── Auto-règlement dès que l'API dit FT ───────────────────
