@@ -1604,6 +1604,7 @@ function subscribeToMatch(matchId) {
   unsubscribers.push(onSnapshot(resRef, (d) => {
     results[matchId] = d.exists() ? d.data() : null;
     renderMatchBetting(matchId);
+    renderLiveScore(matchId);
   }));
 }
 
@@ -1846,6 +1847,7 @@ function renderMatches() {
   updateBalanceDisplay();
   renderLeaderboard();
   MATCHES.forEach((m) => { if (!m.ceremony) renderLiveScore(m.id); });
+  MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
   if (!_livePolling) { _livePolling = true; startLivePolling(); }
 }
 let _livePolling = false;
@@ -2556,6 +2558,13 @@ function renderLiveScore(matchId) {
   const ls = liveScores[matchId];
   const card = document.getElementById(`card-${matchId}`);
   if (!ls || (ls.home == null && ls.away == null && !LIVE_STATUSES.includes(ls.status))) {
+    const res = results[matchId];
+    if (res?.settled && res.homeScore != null && res.awayScore != null) {
+      el.className = "live-score done";
+      el.innerHTML = `🏁 Score final ${res.homeScore} - ${res.awayScore}`;
+      if (card) card.classList.remove("live-now");
+      return;
+    }
     el.innerHTML = ""; el.className = "live-score";
     if (card) card.classList.remove("live-now");
     return;
