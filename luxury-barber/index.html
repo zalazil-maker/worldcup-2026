@@ -419,8 +419,16 @@
 
     .reviews-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-template-columns: repeat(3, 1fr);
       gap: 20px;
+    }
+
+    @media (max-width: 960px) {
+      .reviews-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 600px) {
+      .reviews-grid { grid-template-columns: 1fr; }
     }
 
     .review-card {
@@ -664,7 +672,7 @@
   <div class="rating-section">
     <div class="rating-inner">
       <div class="rating-score">
-        <div class="rating-number">4.7</div>
+        <div class="rating-number">4.3</div>
         <div class="stars">
           <span class="star">★</span>
           <span class="star">★</span>
@@ -672,12 +680,12 @@
           <span class="star">★</span>
           <span class="star-half">★</span>
         </div>
-        <div class="rating-label">Note moyenne</div>
+        <div class="rating-label">Note Google</div>
       </div>
       <div class="rating-divider"></div>
       <div class="rating-stat">
-        <div class="rating-stat-number">11+</div>
-        <div class="rating-stat-label">Avis clients</div>
+        <div class="rating-stat-number">69</div>
+        <div class="rating-stat-label">Avis Google</div>
       </div>
       <div class="rating-divider"></div>
       <div class="rating-stat">
@@ -750,42 +758,87 @@
             <span class="star">★</span><span class="star">★</span><span class="star">★</span>
             <span class="star">★</span><span class="star">★</span>
           </div>
-          <p class="review-text">Top du début à la fin. Ambiance au top, coupe parfaite. Je recommande vivement !</p>
+          <p class="review-text">Le coiffeur est agréable, à l'écoute, et les prix sont vraiment corrects. Il prend son temps (30 à 40 minutes par coupe), mais c'est justement ce qui fait la qualité du résultat. Je recommande les yeux fermés !</p>
+          <div class="review-author">
+            <div class="review-avatar">T</div>
+            <div>
+              <div class="review-name">Taha Khomsi</div>
+              <div class="review-source">Avis Google · Mai 2025</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <div class="review-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
+            <span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="review-text">Trop gentil avec les meilleurs barbiers d'Amiens.</p>
+          <div class="review-author">
+            <div class="review-avatar">M</div>
+            <div>
+              <div class="review-name">Mackenzie Austin</div>
+              <div class="review-source">Google Local Guide · Mai 2025</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <div class="review-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
+            <span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="review-text">Super professional staff, my brother is very happy with the end result.</p>
+          <div class="review-author">
+            <div class="review-avatar">Z</div>
+            <div>
+              <div class="review-name">Zorica Kovac</div>
+              <div class="review-source">Avis Google · Mai 2025</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <div class="review-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
+            <span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="review-text">I went with my nephew for his haircut. I loved the service, fun and professional.</p>
+          <div class="review-author">
+            <div class="review-avatar">E</div>
+            <div>
+              <div class="review-name">Eleonora Iacuzzo</div>
+              <div class="review-source">Avis Google · Mai 2025</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <div class="review-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
+            <span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="review-text">Bonne coupe et service agréable, je recommande.</p>
+          <div class="review-author">
+            <div class="review-avatar">P</div>
+            <div>
+              <div class="review-name">Paco</div>
+              <div class="review-source">Avis Google · Mai 2025</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <div class="review-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
+            <span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="review-text">I recommend this place 👍</p>
           <div class="review-author">
             <div class="review-avatar">A</div>
             <div>
-              <div class="review-name">Amine B.</div>
-              <div class="review-source">Avis Google ⭐⭐⭐⭐⭐</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="review-card">
-          <div class="review-stars">
-            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
-            <span class="star">★</span><span class="star">★</span>
-          </div>
-          <p class="review-text">Allez vous faire couper chez Moha, vous ne regretterez vraiment pas. Accueil super sympa et résultat au top.</p>
-          <div class="review-author">
-            <div class="review-avatar">K</div>
-            <div>
-              <div class="review-name">Karim L.</div>
-              <div class="review-source">Avis Google ⭐⭐⭐⭐⭐</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="review-card">
-          <div class="review-stars">
-            <span class="star">★</span><span class="star">★</span><span class="star">★</span>
-            <span class="star">★</span><span class="star">★</span>
-          </div>
-          <p class="review-text">Cadre moderne, propre et bien décoré. Les barbiers sont professionnels et à l'écoute. Meilleur salon d'Amiens.</p>
-          <div class="review-author">
-            <div class="review-avatar">S</div>
-            <div>
-              <div class="review-name">Sofiane M.</div>
-              <div class="review-source">Avis Google ⭐⭐⭐⭐⭐</div>
+              <div class="review-name">Andreea</div>
+              <div class="review-source">Avis Google · Mai 2025</div>
             </div>
           </div>
         </div>
