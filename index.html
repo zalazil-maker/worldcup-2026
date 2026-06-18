@@ -2832,22 +2832,23 @@ function renderLiveScore(matchId) {
 
 function startLivePolling() {
   refreshLiveScores(false);
-  fetchLiveOdds();
+  fetchLiveOdds();  // once at load for pre-match odds
 
-  // Poll every 30s when any match is live, every 5 min otherwise
   let _pollInterval = null;
   function schedulePoll() {
     const anyLive = MATCHES.some((m) => {
       const ls = liveScores[m.id];
       return ls && LIVE_STATUSES.includes(ls.status);
     });
-    const delay = anyLive ? 30 * 1000 : 5 * 60 * 1000;
+    // Scores: 30s when live, 5min otherwise
+    const scoreDelay = anyLive ? 30 * 1000 : 5 * 60 * 1000;
     _pollInterval = setTimeout(async () => {
       await refreshLiveScores(true);
-      fetchLiveOdds();
+      // Odds API: only fetch pre-match (Poisson handles live — saves API quota)
+      if (!anyLive) fetchLiveOdds();
       MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
       schedulePoll();
-    }, delay);
+    }, scoreDelay);
   }
   schedulePoll();
 }
