@@ -1884,7 +1884,9 @@ function buildMatchCard(m) {
   const past = isPast(m);
   const today = isToday(m);
   const div = document.createElement("div");
-  div.className = `match-card${past ? " past" : ""}${today ? " today" : ""}`;
+  // Only dim as "past" once the match window is fully over (130min after kickoff)
+  // During the match window, live-now class handles the bright highlight
+  div.className = `match-card${past && isOver(m) ? " past" : ""}${today ? " today" : ""}`;
   div.id = `card-${m.id}`;
 
   // Header
