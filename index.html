@@ -1569,6 +1569,12 @@ function isPast(m) {
   return matchDateTime(m) < new Date();
 }
 
+// True once the match window is fully over (130min after kickoff).
+// Used to decide when to dim/collapse a card — during the window a match may still be live.
+function isOver(m) {
+  return Date.now() - matchDateTime(m).getTime() > 130 * 60 * 1000;
+}
+
 function userId() {
   let id = localStorage.getItem("wc2026_uid");
   if (!id) {
