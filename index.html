@@ -3525,7 +3525,13 @@ function _renderAdminDashboard(el) {
   let betsHtml = `<div class="admin-section-title">🎰 Paris du groupe
     <button class="admin-reprice" onclick="repriceOpenBets()" title="Recaler les paris en cours sur les cotes actuelles">🔄 Recaler les cotes</button>
     <button class="admin-reprice" style="background:#ef4444;margin-right:4px" onclick="recalcAllBalances()" title="Recalculer tous les soldes depuis l'historique">🔧 Corriger soldes</button>
-    </div><div class="admin-bets-list">`;
+    </div>
+    <div style="background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.4);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="font-size:.85rem;font-weight:700;color:#f97316;margin-bottom:4px">🚨 Sanction tricheurs — Pays-Bas vs Suède (m13)</div>
+      <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:8px">Pénalise tous les paris "Pays-Bas marque en premier" placés APRÈS le but à 19h05. Mise perdue + 50 € d'amende + notification automatique.</div>
+      <button class="admin-reprice" style="background:#f97316" onclick="penalizeMatchCheaters('m13', M13_GOAL_TS).then(()=>renderAdminDashboard())">🚨 Pénaliser les tricheurs</button>
+    </div>
+    <div class="admin-bets-list">`;
   let totalBets = 0;
   MATCHES.filter((m) => !m.ceremony).forEach((m) => {
     const mb = bets[m.id] || {};
@@ -3615,6 +3621,78 @@ function _renderAdminDashboard(el) {
 
   el.innerHTML = `<h2>📊 Tableau de bord</h2>${playersHtml}${attHtml}${betsHtml}${broadcastHtml}
     <button class="admin-refresh" onclick="renderAdminDashboard()">🔄 Rafraîchir</button>`;
+}
+
+// ── Penalize cheaters (retroactive) ───────────────────────
+// Goal timestamp for m13 (Pays-Bas vs Suède): 19h05 on June 20 2026
+const M13_GOAL_TS = new Date("2026-06-20T19:05:00").getTime();
+
+async function penalizeMatchCheaters(matchId, goalTs) {
+  if (!db) { showToast("Mode démo : action non disponible."); return; }
+  if (!confirm(`⚠️ Pénaliser TOUS les tricheurs sur ce match ?\n\n` +
+    `Critère : pari "marque en premier" sur l'équipe qui a déjà scoré, placé APRÈS le but (${new Date(goalTs).toLocaleTimeString("fr-FR", {hour:"2-digit",minute:"2-digit"})}).\n\n` +
+    `Chaque tricheur : pari marqué "triché" + amende de 50 €.\n\nCette action est irréversible.`)) return;
+
+  const { doc, runTransaction, setDoc } = window._firebaseModules;
+  const mb = bets[matchId] || {};
+  const cheaterBets = [];
+
+  for (const [betId, b] of Object.entries(mb)) {
+    if (b.status === "cheated") continue; // already flagged
+    const createdAt = b.createdAt || 0;
+    if (createdAt <= goalTs) continue; // placed before or at goal time
+    const legs = b.legs?.length ? b.legs : [{ market: b.market, selection: b.selection }];
+    const hasCheatedLeg = legs.some(
+      (leg) => leg.market === "firstScorer" && leg.selection === "home"
+    );
+    if (hasCheatedLeg) cheaterBets.push({ betId, bet: b });
+  }
+
+  if (!cheaterBets.length) {
+    showToast("✅ Aucun tricheur trouvé pour ce match.");
+    return;
+  }
+
+  const FINE = 50;
+  let penalized = 0;
+  const penalizedNames = [];
+
+  try {
+    await runTransaction(db, async (tx) => {
+      for (const { betId, bet } of cheaterBets) {
+        const betRef = doc(db, "bets", matchId, "entries", betId);
+        tx.set(betRef, { status: "cheated" }, { merge: true });
+
+        const uid = bet.userId;
+        const balRef = doc(db, "balances", uid);
+        const curBal = (balances[uid]?.balance ?? 0);
+        tx.set(balRef, { balance: +(curBal - FINE).toFixed(2) }, { merge: true });
+      }
+    });
+
+    // Update local state
+    for (const { betId, bet } of cheaterBets) {
+      bets[matchId][betId].status = "cheated";
+      const uid = bet.userId;
+      if (balances[uid]) balances[uid].balance = +(balances[uid].balance - FINE).toFixed(2);
+      penalizedNames.push(bet.name || uid);
+      penalized++;
+    }
+
+    // Send broadcast warning notification
+    const names = penalizedNames.join(", ");
+    await setDoc(doc(db, "broadcast", "latest"), {
+      title: "🚨 Triche détectée — Amende infligée",
+      body: `Un ou plusieurs paris ont été placés APRÈS un but. Mise perdue + 50 € d'amende. (${names})`,
+      sentAt: Date.now(),
+    });
+
+    showToast(`🚨 ${penalized} tricheur(s) pénalisé(s) : ${names}. Notification envoyée.`);
+    renderAdminDashboard();
+  } catch (err) {
+    console.error("penalizeMatchCheaters error:", err);
+    showToast("Erreur lors de la pénalisation : " + err.message);
+  }
 }
 
 // ── Bootstrap ──────────────────────────────────────────────
