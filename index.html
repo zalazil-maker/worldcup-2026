@@ -731,6 +731,8 @@ footer strong { color: var(--gold-light); }
   border-color: var(--gold); background: rgba(201,162,39,.18);
   box-shadow: 0 0 12px rgba(201,162,39,.2);
 }
+.odd-btn.locked { opacity: .4; cursor: not-allowed; }
+.odd-btn.locked:hover { border-color: var(--card-border); }
 .odd-sel { font-size: .78rem; font-weight: 600; color: var(--text-muted); text-align: center; }
 .odd-btn.active .odd-sel { color: var(--gold-light); }
 .odd-val { font-size: 1.05rem; font-weight: 800; color: var(--text); }
@@ -2300,16 +2302,31 @@ function renderMatchBetting(matchId) {
         const opts = market === "result" ? ["home", "draw", "away"]
           : market === "totals" ? ["over", "under"]
           : ["home", "away", "none"];
+        // Live score: once a goal is in, "scores first" for that team (and "no goals") is locked.
+        const lh = isLive ? (parseInt(ls.home, 10) || 0) : 0;
+        const la = isLive ? (parseInt(ls.away, 10) || 0) : 0;
         opts.forEach((sel) => {
           const o = odds[market][sel];
           const active = draft && draft.market === market && draft.selection === sel;
           const short = market === "result" ? (sel === "home" ? "1" : sel === "draw" ? "N" : "2")
             : market === "totals" ? (sel === "over" ? "+2,5" : "−2,5")
             : (sel === "home" ? m.home.name : sel === "away" ? m.away.name : "Aucun");
-          html += `<button class="odd-btn${active ? " active" : ""}"
-            onclick="selectBet('${matchId}','${market}','${sel}',${o})">
-            <span class="odd-sel">${short}</span><span class="odd-val">${o.toFixed(2)}</span>
-          </button>`;
+          let locked = false;
+          if (market === "firstScorer") {
+            if (sel === "home" && lh > 0) locked = true;
+            if (sel === "away" && la > 0) locked = true;
+            if (sel === "none" && (lh > 0 || la > 0)) locked = true;
+          }
+          if (locked) {
+            html += `<button class="odd-btn locked" disabled title="Trop tard — déjà marqué">
+              <span class="odd-sel">${short}</span><span class="odd-val">🔒</span>
+            </button>`;
+          } else {
+            html += `<button class="odd-btn${active ? " active" : ""}"
+              onclick="selectBet('${matchId}','${market}','${sel}',${o})">
+              <span class="odd-sel">${short}</span><span class="odd-val">${o.toFixed(2)}</span>
+            </button>`;
+          }
         });
         html += `</div></div>`;
       });
@@ -2386,6 +2403,20 @@ async function placeBet(matchId) {
   const myVote = (votes[matchId] || {})[currentUser.id];
   if (myVote?.coming !== true) { showToast("🎟️ Vote « Je viens » d'abord."); return; }
 
+  // Block "scores first" / "no goals" bets once a goal is already on the board.
+  // Covers single bets AND any leg of a combined bet.
+  if (_isLive && _ls) {
+    const h = parseInt(_ls.home, 10) || 0;
+    const a = parseInt(_ls.away, 10) || 0;
+    const legs = draft.legs?.length ? draft.legs : [{ market: draft.market, selection: draft.selection }];
+    for (const leg of legs) {
+      if (leg.market !== "firstScorer") continue;
+      if (leg.selection === "home" && h > 0) { showToast("🚫 Trop tard — cette équipe a déjà marqué !"); return; }
+      if (leg.selection === "away" && a > 0) { showToast("🚫 Trop tard — cette équipe a déjà marqué !"); return; }
+      if (leg.selection === "none" && (h > 0 || a > 0)) { showToast("🚫 Trop tard — il y a déjà eu un but !"); return; }
+    }
+  }
+
   const potentialWin = +(stake * draft.odds).toFixed(2);
   const betId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random().toString(36).slice(2));
   const bet = {
@@ -2396,7 +2427,7 @@ async function placeBet(matchId) {
   };
   // Store current score so we can detect firstScorer bets placed after a goal
   if (_isLive && _ls) {
-    bet.scoreAtBet = { home: _ls.homeScore ?? 0, away: _ls.awayScore ?? 0 };
+    bet.scoreAtBet = { home: parseInt(_ls.home, 10) || 0, away: parseInt(_ls.away, 10) || 0 };
   }
 
   if (db) {
