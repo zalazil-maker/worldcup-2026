@@ -1168,7 +1168,7 @@ const TEAM_RATINGS = {
 const DEFAULT_RATING = 1700;
 
 // ── Scores en direct (TheSportsDB, gratuit, sans clé serveur) ──
-const WC_LEAGUE_ID = "4429"; // FIFA World Cup
+const WC_LEAGUE_ID = 4429; // FIFA World Cup (number — API returns idLeague as int)
 const NAME_MAP = {            // nos noms FR → noms de l'API (EN)
   "Mexique": "Mexico", "Afrique du Sud": "South Africa", "Canada": "Canada",
   "Bosnie": "Bosnia", "USA": "USA", "Paraguay": "Paraguay", "Qatar": "Qatar",
@@ -2561,7 +2561,7 @@ async function fetchDayEvents(date) {
     const r = await fetch(`https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=${date}&s=Soccer`);
     if (!r.ok) return [];
     const j = await r.json();
-    return (j.events || []).filter((e) => e.idLeague === WC_LEAGUE_ID);
+    return (j.events || []).filter((e) => +e.idLeague === WC_LEAGUE_ID);
   } catch (_) { return []; }
 }
 
@@ -2630,11 +2630,19 @@ function renderLiveScore(matchId) {
 
 function startLivePolling() {
   refreshLiveScores(false);
-  fetchLiveOdds();                                          // vraies cotes au chargement
-  setInterval(async () => {
-    await refreshLiveScores(true);
-    fetchLiveOdds();   // vraies cotes Bet365 (bougent en direct à chaque but)
-  }, 5 * 60 * 1000);
+  fetchLiveOdds(); // pre-match odds once at load
+  function schedulePoll() {
+    const anyLive = MATCHES.some((m) => {
+      const ls = liveScores[m.id];
+      return ls && LIVE_STATUSES.includes(ls.status);
+    });
+    setTimeout(async () => {
+      await refreshLiveScores(true);
+      if (!anyLive) fetchLiveOdds(); // skip odds API during live (Poisson handles it)
+      schedulePoll();
+    }, anyLive ? 30 * 1000 : 5 * 60 * 1000);
+  }
+  schedulePoll();
 }
 
 // ── Auto-règlement dès que l'API dit FT ───────────────────
