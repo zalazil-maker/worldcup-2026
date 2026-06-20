@@ -744,7 +744,11 @@ footer strong { color: var(--gold-light); }
 }
 .betslip-sel { font-size: .9rem; font-weight: 700; margin-bottom: 10px; }
 .betslip-odd { color: var(--gold-light); }
-.betslip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.betslip-leg { font-size: .9rem; font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between; }
+.betslip-combined-odds { font-size: .85rem; color: var(--gold-light); margin: 6px 0 10px; padding: 4px 8px; background: rgba(201,162,39,.1); border-radius: 6px; }
+.betslip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.betslip-clear { margin-top: 8px; text-align: right; }
+.betslip-clear button { background: none; border: none; color: var(--text-muted); font-size: .8rem; cursor: pointer; }
 .stake-input {
   width: 100px; background: var(--dark); border: 1.5px solid var(--card-border);
   border-radius: 8px; padding: 8px 12px; color: var(--text);
@@ -1141,6 +1145,55 @@ const MATCHES = [
     home: { name: "Angleterre", flag: "gb-eng" },
     away: { name: "Croatie", flag: "hr" },
   },
+  {
+    id: "m11",
+    date: "2026-06-18", time: "18:00",
+    label: "Jeudi 18 Juin 2026",
+    home: { name: "Tchéquie", flag: "cz" },
+    away: { name: "Afrique du Sud", flag: "za" },
+  },
+  {
+    id: "m12",
+    date: "2026-06-18", time: "21:00",
+    label: "Jeudi 18 Juin 2026",
+    home: { name: "Suisse", flag: "ch" },
+    away: { name: "Bosnie", flag: "ba" },
+  },
+  {
+    id: "m13",
+    date: "2026-06-20", time: "19:00",
+    label: "Samedi 20 Juin 2026",
+    home: { name: "Pays-Bas", flag: "nl" },
+    away: { name: "Suède", flag: "se" },
+  },
+  {
+    id: "m14",
+    date: "2026-06-20", time: "22:00",
+    label: "Samedi 20 Juin 2026",
+    home: { name: "Allemagne", flag: "de" },
+    away: { name: "Côte d'Ivoire", flag: "ci" },
+  },
+  {
+    id: "m15",
+    date: "2026-06-21", time: "02:00",
+    label: "Dimanche 21 Juin 2026",
+    home: { name: "Équateur", flag: "ec" },
+    away: { name: "Curaçao", flag: "cw" },
+  },
+  {
+    id: "m16",
+    date: "2026-06-21", time: "18:00",
+    label: "Dimanche 21 Juin 2026",
+    home: { name: "Espagne", flag: "es" },
+    away: { name: "Arabie Saoudite", flag: "sa" },
+  },
+  {
+    id: "m17",
+    date: "2026-06-21", time: "21:00",
+    label: "Dimanche 21 Juin 2026",
+    home: { name: "Belgique", flag: "be" },
+    away: { name: "Iran", flag: "ir" },
+  },
 ];
 
 const BRINGING_OPTIONS = [
@@ -1160,10 +1213,13 @@ const BRINGING_OPTIONS = [
 // automatiquement les cotes à partir de la probabilité de victoire.
 const TEAM_RATINGS = {
   "France": 2050, "Brésil": 2020, "Angleterre": 1985, "Portugal": 1970,
-  "Croatie": 1855, "Suisse": 1830, "Maroc": 1820, "Sénégal": 1800,
+  "Allemagne": 1960, "Espagne": 1950, "Belgique": 1900,
+  "Croatie": 1855, "Pays-Bas": 1850, "Suisse": 1830, "Maroc": 1820, "Sénégal": 1800,
   "Mexique": 1755, "USA": 1750, "Canada": 1705, "Écosse": 1700,
-  "Paraguay": 1680, "Bosnie": 1660, "Afrique du Sud": 1640, "RD Congo": 1630,
-  "Qatar": 1600, "Haïti": 1500,
+  "Tchéquie": 1695, "Suède": 1690, "Paraguay": 1680, "Bosnie": 1660,
+  "Afrique du Sud": 1640, "RD Congo": 1630, "Côte d'Ivoire": 1625,
+  "Arabie Saoudite": 1610, "Iran": 1605, "Qatar": 1600,
+  "Équateur": 1590, "Curaçao": 1450, "Haïti": 1500,
 };
 const DEFAULT_RATING = 1700;
 
@@ -1171,10 +1227,15 @@ const DEFAULT_RATING = 1700;
 const WC_LEAGUE_ID = 4429; // FIFA World Cup (number — API returns idLeague as int)
 const NAME_MAP = {            // nos noms FR → noms de l'API (EN)
   "Mexique": "Mexico", "Afrique du Sud": "South Africa", "Canada": "Canada",
-  "Bosnie": "Bosnia", "USA": "USA", "Paraguay": "Paraguay", "Qatar": "Qatar",
-  "Suisse": "Switzerland", "Brésil": "Brazil", "Maroc": "Morocco", "Haïti": "Haiti",
-  "Écosse": "Scotland", "France": "France", "Sénégal": "Senegal", "Portugal": "Portugal",
-  "RD Congo": "Congo", "Angleterre": "England", "Croatie": "Croatia",
+  "Bosnie": "Bosnia and Herzegovina", "USA": "USA", "Paraguay": "Paraguay",
+  "Qatar": "Qatar", "Suisse": "Switzerland", "Brésil": "Brazil",
+  "Maroc": "Morocco", "Haïti": "Haiti", "Écosse": "Scotland",
+  "France": "France", "Sénégal": "Senegal", "Portugal": "Portugal",
+  "RD Congo": "Congo DR", "Angleterre": "England", "Croatie": "Croatia",
+  "Tchéquie": "Czechia", "Pays-Bas": "Netherlands",
+  "Allemagne": "Germany", "Côte d'Ivoire": "Ivory Coast", "Équateur": "Ecuador",
+  "Curaçao": "Curacao", "Espagne": "Spain", "Arabie Saoudite": "Saudi Arabia",
+  "Belgique": "Belgium", "Iran": "Iran", "Suède": "Sweden",
 };
 
 const MARGIN = 1.06;       // marge "bookmaker" (~6%) sur les cotes
@@ -2113,11 +2174,16 @@ function updateBalanceDisplay() {
   if (el) el.textContent = myBalance().toFixed(2) + " €";
 }
 
+function hasBets(uid) {
+  return MATCHES.some((m) => Object.values(bets[m.id] || {}).some((b) => b.userId === uid));
+}
+
 function renderLeaderboard() {
   const el = document.getElementById("leaderboard");
   if (!el) return;
   const players = Object.entries(balances)
     .map(([id, v]) => ({ id, name: v.name, balance: v.balance ?? START_BALANCE }))
+    .filter((p) => hasBets(p.id))
     .sort((a, b) => b.balance - a.balance);
   if (!players.length) { el.innerHTML = ""; return; }
   const medals = ["🥇", "🥈", "🥉"];
