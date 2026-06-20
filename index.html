@@ -1925,13 +1925,15 @@ function togglePastMatches() {
   if (label) label.textContent = _pastVisible ? "📁 Masquer les matchs passés" : "📂 Voir les matchs passés";
 }
 
-// A match is "collapsible past" once its window is fully over (130min) AND
-// it's settled (or a ceremony). Live matches are never collapsed.
+// A match is "collapsible past" once its window is fully over (130min after
+// kickoff). Live matches are never collapsed — they stay bright at the top.
+// Settlement is NOT required: a finished match moves to "past events" on time
+// alone, even if its result hasn't been entered yet.
 function isCollapsiblePast(m) {
   const ls = liveScores[m.id];
   const isLive = ls && LIVE_STATUSES.includes(ls.status);
   if (isLive) return false;
-  return isOver(m) && (m.ceremony || results[m.id]?.settled);
+  return isOver(m);
 }
 
 // Re-evaluated every time results/live scores change (not just at render time,
