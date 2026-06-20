@@ -1709,6 +1709,7 @@ function subscribeToMatch(matchId) {
   unsubscribers.push(onSnapshot(resRef, (d) => {
     results[matchId] = d.exists() ? d.data() : null;
     renderMatchBetting(matchId);
+    applyPastHiding();
   }));
 }
 
@@ -1924,22 +1925,37 @@ function togglePastMatches() {
   if (label) label.textContent = _pastVisible ? "📁 Masquer les matchs passés" : "📂 Voir les matchs passés";
 }
 
+// A match is "collapsible past" once its window is fully over (130min) AND
+// it's settled (or a ceremony). Live matches are never collapsed.
+function isCollapsiblePast(m) {
+  const ls = liveScores[m.id];
+  const isLive = ls && LIVE_STATUSES.includes(ls.status);
+  if (isLive) return false;
+  return isOver(m) && (m.ceremony || results[m.id]?.settled);
+}
+
+// Re-evaluated every time results/live scores change (not just at render time,
+// because Firestore results load asynchronously after the first render).
+function applyPastHiding() {
+  MATCHES.forEach((m) => {
+    const card = document.getElementById(`card-${m.id}`);
+    if (!card) return;
+    const collapse = isCollapsiblePast(m);
+    card.classList.toggle("past-hidden-able", collapse);
+    card.classList.toggle("past-hidden", collapse && !_pastVisible);
+  });
+  const hasPast = MATCHES.some(isCollapsiblePast);
+  const toggleWrap = document.getElementById("past-matches-toggle");
+  if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
+}
+
 function renderMatches() {
   const container = document.getElementById("matches-container");
   container.innerHTML = "";
   MATCHES.forEach((m) => {
-    const card = buildMatchCard(m);
-    // Matches that are past AND settled → collapse by default
-    if (isPast(m) && results[m.id]?.settled) {
-      card.classList.add("past-hidden-able", "past-hidden");
-    }
-    container.appendChild(card);
+    container.appendChild(buildMatchCard(m));
   });
-
-  // Show toggle button only if there are collapsible past matches
-  const hasPast = MATCHES.some((m) => isPast(m) && results[m.id]?.settled);
-  const toggleWrap = document.getElementById("past-matches-toggle");
-  if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
+  applyPastHiding();
 
   if (db && !_subscribed) {
     _subscribed = true;
@@ -2718,6 +2734,7 @@ function renderLiveScore(matchId) {
     el.innerHTML = ""; el.className = "live-score";
     if (card) card.classList.remove("live-now");
   }
+  applyPastHiding();
 }
 
 function startLivePolling() {
@@ -2732,6 +2749,7 @@ function startLivePolling() {
       await refreshLiveScores(true);
       if (!anyLive) fetchLiveOdds(); // skip odds API during live (Poisson handles it)
       MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
+      applyPastHiding(); // a match may have crossed the 130min mark since last poll
       schedulePoll();
     }, anyLive ? 30 * 1000 : 5 * 60 * 1000);
   }
