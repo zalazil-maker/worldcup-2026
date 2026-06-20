@@ -675,6 +675,23 @@ footer strong { color: var(--gold-light); }
   border-radius: 8px; padding: 8px 12px; font-size: .88rem;
   margin-bottom: 12px; color: var(--gold-light);
 }
+.best-bet-banner {
+  background: linear-gradient(135deg, rgba(201,162,39,.18), rgba(250,200,80,.08));
+  border: 1.5px solid rgba(201,162,39,.5); border-radius: 10px;
+  padding: 10px 14px; font-size: .85rem; margin-bottom: 10px;
+  animation: bestBetPop .4s cubic-bezier(.34,1.56,.64,1);
+}
+.best-bet-banner .best-bet-label { color: var(--text-muted); font-size: .75rem; margin-bottom: 3px; }
+.best-bet-banner .best-bet-main { color: var(--gold-light); font-weight: 700; font-size: .95rem; }
+.best-bet-banner .best-bet-gain { color: #4ade80; font-weight: 800; }
+@keyframes bestBetPop {
+  from { opacity: 0; transform: scale(.92) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+#confetti-canvas {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 9999;
+}
 .bet-locked {
   background: var(--dark3); border: 1px dashed var(--card-border);
   border-radius: 8px; padding: 12px; font-size: .85rem;
@@ -726,12 +743,8 @@ footer strong { color: var(--gold-light); }
   padding: 12px;
 }
 .betslip-sel { font-size: .9rem; font-weight: 700; margin-bottom: 10px; }
-.betslip-leg { font-size: .9rem; font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between; }
-.betslip-combined-odds { font-size: .85rem; color: var(--gold-light); margin: 6px 0 10px; padding: 4px 8px; background: rgba(201,162,39,.1); border-radius: 6px; }
 .betslip-odd { color: var(--gold-light); }
-.betslip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
-.betslip-clear { margin-top: 8px; text-align: right; }
-.betslip-clear button { background: none; border: none; color: var(--text-muted); font-size: .8rem; cursor: pointer; }
+.betslip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .stake-input {
   width: 100px; background: var(--dark); border: 1.5px solid var(--card-border);
   border-radius: 8px; padding: 8px 12px; color: var(--text);
@@ -761,6 +774,7 @@ footer strong { color: var(--gold-light); }
 .mybet.open { border-left-color: var(--gold); }
 .mybet.won { border-left-color: var(--green); background: rgba(34,197,94,.08); }
 .mybet.lost { border-left-color: var(--red); background: rgba(239,68,68,.06); opacity: .8; }
+.mybet.cheated { border-left-color: #f97316; background: rgba(249,115,22,.10); }
 .mybet-sel { font-weight: 700; }
 .mybet-info { font-size: .78rem; color: var(--text-muted); }
 
@@ -930,6 +944,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
+<canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
 <div id="install-banner" class="install-banner hidden">
@@ -1126,55 +1141,6 @@ const MATCHES = [
     home: { name: "Angleterre", flag: "gb-eng" },
     away: { name: "Croatie", flag: "hr" },
   },
-  {
-    id: "m11",
-    date: "2026-06-18", time: "18:00",
-    label: "Jeudi 18 Juin 2026",
-    home: { name: "Tchéquie", flag: "cz" },
-    away: { name: "Afrique du Sud", flag: "za" },
-  },
-  {
-    id: "m12",
-    date: "2026-06-18", time: "21:00",
-    label: "Jeudi 18 Juin 2026",
-    home: { name: "Suisse", flag: "ch" },
-    away: { name: "Bosnie", flag: "ba" },
-  },
-  {
-    id: "m13",
-    date: "2026-06-20", time: "19:00",
-    label: "Samedi 20 Juin 2026",
-    home: { name: "Pays-Bas", flag: "nl" },
-    away: { name: "Suède", flag: "se" },
-  },
-  {
-    id: "m14",
-    date: "2026-06-20", time: "22:00",
-    label: "Samedi 20 Juin 2026",
-    home: { name: "Allemagne", flag: "de" },
-    away: { name: "Côte d'Ivoire", flag: "ci" },
-  },
-  {
-    id: "m15",
-    date: "2026-06-21", time: "02:00",
-    label: "Dimanche 21 Juin 2026",
-    home: { name: "Équateur", flag: "ec" },
-    away: { name: "Curaçao", flag: "cw" },
-  },
-  {
-    id: "m16",
-    date: "2026-06-21", time: "18:00",
-    label: "Dimanche 21 Juin 2026",
-    home: { name: "Espagne", flag: "es" },
-    away: { name: "Arabie Saoudite", flag: "sa" },
-  },
-  {
-    id: "m17",
-    date: "2026-06-21", time: "21:00",
-    label: "Dimanche 21 Juin 2026",
-    home: { name: "Belgique", flag: "be" },
-    away: { name: "Iran", flag: "ir" },
-  },
 ];
 
 const BRINGING_OPTIONS = [
@@ -1194,29 +1160,21 @@ const BRINGING_OPTIONS = [
 // automatiquement les cotes à partir de la probabilité de victoire.
 const TEAM_RATINGS = {
   "France": 2050, "Brésil": 2020, "Angleterre": 1985, "Portugal": 1970,
-  "Allemagne": 1960, "Espagne": 1950, "Belgique": 1900,
-  "Croatie": 1855, "Pays-Bas": 1850, "Suisse": 1830, "Maroc": 1820, "Sénégal": 1800,
+  "Croatie": 1855, "Suisse": 1830, "Maroc": 1820, "Sénégal": 1800,
   "Mexique": 1755, "USA": 1750, "Canada": 1705, "Écosse": 1700,
-  "Tchéquie": 1695, "Suède": 1690, "Paraguay": 1680, "Bosnie": 1660,
-  "Afrique du Sud": 1640, "RD Congo": 1630, "Côte d'Ivoire": 1625,
-  "Arabie Saoudite": 1610, "Iran": 1605, "Qatar": 1600,
-  "Équateur": 1590, "Curaçao": 1450, "Haïti": 1500,
+  "Paraguay": 1680, "Bosnie": 1660, "Afrique du Sud": 1640, "RD Congo": 1630,
+  "Qatar": 1600, "Haïti": 1500,
 };
 const DEFAULT_RATING = 1700;
 
 // ── Scores en direct (TheSportsDB, gratuit, sans clé serveur) ──
-const WC_LEAGUE_ID = "4429"; // FIFA World Cup
+const WC_LEAGUE_ID = 4429; // FIFA World Cup (number — API returns idLeague as int)
 const NAME_MAP = {            // nos noms FR → noms de l'API (EN)
   "Mexique": "Mexico", "Afrique du Sud": "South Africa", "Canada": "Canada",
   "Bosnie": "Bosnia", "USA": "USA", "Paraguay": "Paraguay", "Qatar": "Qatar",
   "Suisse": "Switzerland", "Brésil": "Brazil", "Maroc": "Morocco", "Haïti": "Haiti",
   "Écosse": "Scotland", "France": "France", "Sénégal": "Senegal", "Portugal": "Portugal",
-  "RD Congo": "Congo DR", "Angleterre": "England", "Croatie": "Croatia",
-  "Tchéquie": "Czechia", "Suisse": "Switzerland", "Pays-Bas": "Netherlands",
-  "Allemagne": "Germany", "Côte d'Ivoire": "Ivory Coast", "Équateur": "Ecuador",
-  "Curaçao": "Curacao", "Espagne": "Spain", "Arabie Saoudite": "Saudi Arabia",
-  "Belgique": "Belgium", "Iran": "Iran", "Suède": "Sweden",
-  "Bosnie": "Bosnia and Herzegovina",
+  "RD Congo": "Congo", "Angleterre": "England", "Croatie": "Croatia",
 };
 
 const MARGIN = 1.06;       // marge "bookmaker" (~6%) sur les cotes
@@ -1376,20 +1334,20 @@ function computeOdds(matchId) {
   const odds = {};
 
   // ── result & totals ─────────────────────────────────────────
-  const minute = isLive ? (matchMinute(matchId) ?? 45) : null;
-  const hg = isLive ? (parseInt(ls.home, 10) || 0) : 0;
-  const ag = isLive ? (parseInt(ls.away, 10) || 0) : 0;
-  const livePoisson = isLive ? inPlayProbs(matchId, hg, ag, minute) : null;
-
-  if (isLive && livePoisson) {
-    // Live match: always use Poisson model (incorporates current score + minute).
-    // API odds go stale between polls and don't reflect a 2-0 lead at 90'+.
-    const blended = blendWithBets(livePoisson, stakes.result);
-    odds.result = {};
-    for (const k in blended) odds.result[k] = toOdds(blended[k]);
-  } else if (real?.result) {
-    // Pre-match: use Bet365 API odds
+  if (real?.result) {
+    // Cotes brutes Bet365 — affichées telles quelles, aucune retouche
     odds.result = { ...real.result };
+  } else if (isLive) {
+    // Modèle Poisson si pas de cotes réelles
+    const minute = matchMinute(matchId) ?? 45;
+    const hg = parseInt(ls.home, 10) || 0;
+    const ag = parseInt(ls.away, 10) || 0;
+    const live = inPlayProbs(matchId, hg, ag, minute);
+    if (live) {
+      const blended = blendWithBets(live, stakes.result);
+      odds.result = {};
+      for (const k in blended) odds.result[k] = toOdds(blended[k]);
+    }
   }
   if (!odds.result) {
     const blended = blendWithBets(base.result, stakes.result);
@@ -1550,12 +1508,6 @@ function isPast(m) {
   return matchDateTime(m) < new Date();
 }
 
-// A match is considered "over" (can be collapsed) only after 2h10m from kickoff,
-// giving time for the live score API to catch up even without a signal.
-function isOver(m) {
-  return Date.now() - matchDateTime(m).getTime() > 130 * 60 * 1000;
-}
-
 function userId() {
   let id = localStorage.getItem("wc2026_uid");
   if (!id) {
@@ -1605,19 +1557,18 @@ function changeName() {
     if (db) {
       try {
         const { collection, getDocs } = window._firebaseModules;
-        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000));
-        const snap = await Promise.race([getDocs(collection(db, "users")), timeout]);
+        const snap = await getDocs(collection(db, "users"));
         const myUid = userId();
         const takenBy = snap.docs.find((d) =>
           d.id !== myUid &&
           (d.data().name || "").toLowerCase() === name.toLowerCase()
         );
         if (takenBy) {
-          setModalError(`❌ "${name}" est déjà utilisé par quelqu'un d'autre.`);
+          setModalError(`❌ "${name}" est déjà pris — essaie un autre surnom.`);
           btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
           return;
         }
-      } catch (_) { btn.disabled = false; btn.textContent = "C'est parti ! 🎉"; }
+      } catch (_) {}
     }
 
     localStorage.setItem("wc2026_name", name);
@@ -1633,9 +1584,8 @@ function changeName() {
 async function initFirebase() {
   if (typeof FIREBASE_ENABLED === "undefined" || !FIREBASE_ENABLED) return;
   try {
-    // Attend que les modules Firebase (chargés en différé) soient prêts — timeout 8s
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("firebase-timeout")), 8000));
-    await Promise.race([window._firebaseReady, timeout]);
+    // Attend que les modules Firebase (chargés en différé) soient prêts
+    await window._firebaseReady;
     const { initializeApp, getFirestore } = window._firebaseModules;
     window._firebaseApp = initializeApp(FIREBASE_CONFIG);
     db = getFirestore(window._firebaseApp);
@@ -1663,8 +1613,19 @@ function subscribeToMatch(matchId) {
   // Paris
   const betsRef = collection(db, "matches", matchId, "bets");
   unsubscribers.push(onSnapshot(betsRef, (snap) => {
+    const prev = bets[matchId] || {};
     bets[matchId] = {};
     snap.forEach((d) => { bets[matchId][d.id] = d.data(); });
+    // Confetti when one of MY bets just flipped to "won"
+    if (currentUser) {
+      snap.docChanges().forEach((change) => {
+        const d = change.doc.data();
+        if (d.userId === currentUser.id && d.status === "won" &&
+            prev[change.doc.id]?.status !== "won") {
+          fireConfetti();
+        }
+      });
+    }
     renderMatchBetting(matchId);
   }));
 
@@ -1673,7 +1634,6 @@ function subscribeToMatch(matchId) {
   unsubscribers.push(onSnapshot(resRef, (d) => {
     results[matchId] = d.exists() ? d.data() : null;
     renderMatchBetting(matchId);
-    applyPastHiding(); // re-collapse past matches once result is known
   }));
 }
 
@@ -1880,25 +1840,6 @@ async function saveVote(matchId, coming, bringing, other) {
 let _subscribed = false;
 let _pastVisible = false;
 
-// Apply hide/show logic for past matches. Called after results load from Firestore.
-function applyPastHiding() {
-  MATCHES.forEach((m) => {
-    const card = document.getElementById(`card-${m.id}`);
-    if (!card) return;
-    const isLive = liveScores[m.id] && LIVE_STATUSES.includes(liveScores[m.id].status);
-    if (isLive) return; // live match is always visible
-    const shouldCollapse = isOver(m) && (m.ceremony || results[m.id]?.settled);
-    card.classList.toggle("past-hidden-able", shouldCollapse);
-    card.classList.toggle("past-hidden", shouldCollapse && !_pastVisible);
-  });
-  const hasPast = MATCHES.some((m) => {
-    const isLive = liveScores[m.id] && LIVE_STATUSES.includes(liveScores[m.id].status);
-    return !isLive && isOver(m) && (m.ceremony || results[m.id]?.settled);
-  });
-  const toggleWrap = document.getElementById("past-matches-toggle");
-  if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
-}
-
 function togglePastMatches() {
   _pastVisible = !_pastVisible;
   document.querySelectorAll(".match-card.past-hidden-able").forEach((el) => {
@@ -1912,11 +1853,18 @@ function renderMatches() {
   const container = document.getElementById("matches-container");
   container.innerHTML = "";
   MATCHES.forEach((m) => {
-    container.appendChild(buildMatchCard(m));
+    const card = buildMatchCard(m);
+    // Matches that are past AND settled → collapse by default
+    if (isPast(m) && results[m.id]?.settled) {
+      card.classList.add("past-hidden-able", "past-hidden");
+    }
+    container.appendChild(card);
   });
 
-  // Apply hiding immediately (Firestore may not be loaded yet, will re-apply on each result snapshot)
-  applyPastHiding();
+  // Show toggle button only if there are collapsible past matches
+  const hasPast = MATCHES.some((m) => isPast(m) && results[m.id]?.settled);
+  const toggleWrap = document.getElementById("past-matches-toggle");
+  if (toggleWrap) toggleWrap.style.display = hasPast ? "" : "none";
 
   if (db && !_subscribed) {
     _subscribed = true;
@@ -1936,7 +1884,9 @@ function buildMatchCard(m) {
   const past = isPast(m);
   const today = isToday(m);
   const div = document.createElement("div");
-  div.className = `match-card${past ? " past" : ""}${today ? " today" : ""}`;
+  // Only dim as "past" once the match window is fully over (130min after kickoff)
+  // During the match window, live-now class handles the bright highlight
+  div.className = `match-card${past && isOver(m) ? " past" : ""}${today ? " today" : ""}`;
   div.id = `card-${m.id}`;
 
   // Header
@@ -2155,18 +2105,13 @@ function updateBalanceDisplay() {
   if (el) el.textContent = myBalance().toFixed(2) + " €";
 }
 
-function hasBets(userId) {
-  return MATCHES.some((m) => Object.values(bets[m.id] || {}).some((b) => b.userId === userId));
-}
-
 function renderLeaderboard() {
   const el = document.getElementById("leaderboard");
   if (!el) return;
   const players = Object.entries(balances)
     .map(([id, v]) => ({ id, name: v.name, balance: v.balance ?? START_BALANCE }))
-    .filter((p) => hasBets(p.id))
     .sort((a, b) => b.balance - a.balance);
-  if (!players.length) { el.innerHTML = "<div style='color:var(--text-muted);font-size:.85rem;padding:8px'>Aucun pari encore placé.</div>"; return; }
+  if (!players.length) { el.innerHTML = ""; return; }
   const medals = ["🥇", "🥈", "🥉"];
   el.innerHTML = players.map((p, i) => `
     <div class="lb-row${p.id === currentUser?.id ? " me" : ""}">
@@ -2196,6 +2141,7 @@ function renderMatchBetting(matchId) {
     html += `<div class="result-banner">
       🏁 Score final : <strong>${m.home.name} ${result.homeScore} - ${result.awayScore} ${m.away.name}</strong>
     </div>`;
+    html += bestBetBanner(matchId);
   }
 
   // Mes paris sur ce match
@@ -2203,9 +2149,10 @@ function renderMatchBetting(matchId) {
   if (myBets.length) {
     html += `<div class="mybets-title">Mes paris</div><div class="mybets-list">`;
     myBets.forEach(([, b]) => {
-      const stCls = b.status === "won" ? "won" : b.status === "lost" ? "lost" : "open";
+      const stCls = b.status === "won" ? "won" : b.status === "lost" ? "lost" : b.status === "cheated" ? "cheated" : "open";
       const stTxt = b.status === "won" ? `✅ Gagné +${b.potentialWin.toFixed(2)} €`
         : b.status === "lost" ? "❌ Perdu"
+        : b.status === "cheated" ? "🚨 Pari invalide — triche détectée. Mise perdue."
         : `⏳ En cours · gain potentiel ${b.potentialWin.toFixed(2)} €`;
       html += `<div class="mybet ${stCls}">
         <span class="mybet-sel">${b.label}</span>
@@ -2226,13 +2173,12 @@ function renderMatchBetting(matchId) {
       const isLive = ls && LIVE_STATUSES.includes(ls.status);
       const isDone = ls && DONE_STATUSES.includes(ls.status);
 
-      // ── Paris fermés à partir de 90' ou si match terminé ─
-      const locked = isBettingLocked(ls);
-      if (locked) {
-        const score = (ls?.home != null && ls?.away != null) ? ` (${ls.home}–${ls.away})` : "";
-        const reason = isDone ? "match terminé" : "90e minute atteinte";
+      // ── Paris fermés dès le coup d'envoi ──────────────────
+      if (isLive || isDone) {
+        const score = (ls.home != null && ls.away != null) ? ` (${ls.home}–${ls.away})` : "";
         html += `<div class="bet-locked bet-locked-live">
-          🔒 Paris fermés — ${reason}${score}
+          🔒 Paris fermés — match en cours${score}<br>
+          <small>Les paris ne sont acceptés qu'avant le coup d'envoi.</small>
         </div>`;
       } else {
       const maxStake = isLive ? Math.min(LIVE_MAX_STAKE, myBalance()) : myBalance();
@@ -2258,7 +2204,7 @@ function renderMatchBetting(matchId) {
           : ["home", "away", "none"];
         opts.forEach((sel) => {
           const o = odds[market][sel];
-          const active = draft && draft.legs?.some((l) => l.market === market && l.selection === sel);
+          const active = draft && draft.market === market && draft.selection === sel;
           const short = market === "result" ? (sel === "home" ? "1" : sel === "draw" ? "N" : "2")
             : market === "totals" ? (sel === "over" ? "+2,5" : "−2,5")
             : (sel === "home" ? m.home.name : sel === "away" ? m.away.name : "Aucun");
@@ -2271,23 +2217,14 @@ function renderMatchBetting(matchId) {
       });
       // Bulletin de pari
       if (draft) {
-        const legs = draft.legs || [];
-        const isCombined = legs.length > 1;
-        const legsHtml = legs.map((l) =>
-          `<div class="betslip-leg">${l.label} <span class="betslip-odd">@ ${l.odds.toFixed(2)}</span></div>`
-        ).join("");
-        const combinedLabel = isCombined
-          ? `<div class="betslip-combined-odds">Cote combinée : <strong>${draft.odds.toFixed(2)}</strong></div>`
-          : "";
         html += `<div class="betslip">
-          ${legsHtml}${combinedLabel}
+          <div class="betslip-sel">${selectionLabel(m, draft.market, draft.selection)} <span class="betslip-odd">@ ${draft.odds.toFixed(2)}</span></div>
           <div class="betslip-row">
             <input type="number" id="stake-${matchId}" class="stake-input" min="1" step="1"
               max="${maxStake}" placeholder="Mise €" oninput="updatePotential('${matchId}')" />
             <span class="potential" id="potential-${matchId}">Gain : —</span>
             <button class="place-bet-btn" onclick="placeBet('${matchId}')">Parier 🎯</button>
           </div>
-          <div class="betslip-clear"><button onclick="betDraft['${matchId}']=undefined;renderMatchBetting('${matchId}')">✕ Effacer</button></div>
         </div>`;
       }
       } // fin else (pas live/done)
@@ -2299,7 +2236,7 @@ function renderMatchBetting(matchId) {
   if (allBets.length) {
     html += `<div class="allbets-title">📋 Paris du groupe (${allBets.length})</div><div class="allbets-list">`;
     allBets.forEach((b) => {
-      const icon = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
+      const icon = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : b.status === "cheated" ? "🚨" : "⏳";
       html += `<span class="allbet-tag">${icon} <strong>${b.name}</strong> · ${b.label} · ${b.stake.toFixed(0)}€</span>`;
     });
     html += `</div>`;
@@ -2315,23 +2252,9 @@ function renderMatchBetting(matchId) {
 }
 
 // ── Sélection d'un pari ────────────────────────────────────
-function selectBet(matchId, market, selection, oddsVal) {
+function selectBet(matchId, market, selection, odds) {
   const m = MATCHES.find((x) => x.id === matchId);
-  if (!betDraft[matchId]) betDraft[matchId] = { legs: [] };
-  const legs = betDraft[matchId].legs;
-  const existing = legs.findIndex((l) => l.market === market);
-  const leg = { market, selection, odds: oddsVal, label: selectionLabel(m, market, selection) };
-  if (existing >= 0) {
-    if (legs[existing].selection === selection) {
-      legs.splice(existing, 1); // deselect same button
-    } else {
-      legs[existing] = leg; // replace same market
-    }
-  } else {
-    legs.push(leg);
-  }
-  if (!legs.length) delete betDraft[matchId];
-  else betDraft[matchId].odds = +legs.reduce((acc, l) => acc * l.odds, 1).toFixed(2);
+  betDraft[matchId] = { market, selection, odds, label: selectionLabel(m, market, selection) };
   renderMatchBetting(matchId);
 }
 
@@ -2341,8 +2264,7 @@ function updatePotential(matchId) {
   const out = document.getElementById(`potential-${matchId}`);
   if (!draft || !input || !out) return;
   const stake = parseFloat(input.value) || 0;
-  const combinedOdds = draft.odds;
-  out.textContent = stake > 0 ? `Gain : ${(stake * combinedOdds).toFixed(2)} €` : "Gain : —";
+  out.textContent = stake > 0 ? `Gain : ${(stake * draft.odds).toFixed(2)} €` : "Gain : —";
 }
 
 // ── Placement d'un pari ────────────────────────────────────
@@ -2357,7 +2279,8 @@ async function placeBet(matchId) {
   if (results[matchId]?.settled) { showToast("⛔ Ce match est terminé."); return; }
   const _ls = liveScores[matchId];
   const _isLive = _ls && LIVE_STATUSES.includes(_ls.status);
-  if (isBettingLocked(_ls)) { showToast("🔒 Paris fermés — 90e minute atteinte ou match terminé."); return; }
+  const _isDone = _ls && DONE_STATUSES.includes(_ls.status);
+  if (_isDone) { showToast("🔒 Match terminé — paris fermés."); return; }
   if (_isLive && stake > LIVE_MAX_STAKE) {
     showToast(`🔒 Mise max en direct : ${LIVE_MAX_STAKE} €`); return;
   }
@@ -2367,18 +2290,16 @@ async function placeBet(matchId) {
 
   const potentialWin = +(stake * draft.odds).toFixed(2);
   const betId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random().toString(36).slice(2));
-  const isCombined = draft.legs.length > 1;
-  const combinedLabel = draft.legs.map((l) => l.label).join(" + ");
   const bet = {
     userId: currentUser.id, name: currentUser.name,
-    legs: draft.legs,
-    // keep single-leg fields for backward compat with betWins
-    market: isCombined ? "combined" : draft.legs[0].market,
-    selection: isCombined ? "combined" : draft.legs[0].selection,
-    label: isCombined ? combinedLabel : draft.legs[0].label,
+    market: draft.market, selection: draft.selection, label: draft.label,
     stake: +stake.toFixed(2), odds: draft.odds, potentialWin,
     status: "open", createdAt: Date.now(),
   };
+  // Store current score so we can detect firstScorer bets placed after a goal
+  if (_isLive && _ls) {
+    bet.scoreAtBet = { home: _ls.homeScore ?? 0, away: _ls.awayScore ?? 0 };
+  }
 
   if (db) {
     try {
@@ -2483,6 +2404,7 @@ function openSettleForm(matchId) {
 }
 
 // ── Règlement des paris ────────────────────────────────────
+// Returns true (win), false (loss), or "cheated" (firstScorer placed after goal already in)
 function betLegWins(leg, res) {
   if (leg.market === "result") {
     const actual = res.homeScore > res.awayScore ? "home" : res.homeScore < res.awayScore ? "away" : "draw";
@@ -2493,16 +2415,27 @@ function betLegWins(leg, res) {
     return leg.selection === "over" ? total > 2.5 : total < 2.5;
   }
   if (leg.market === "firstScorer") {
+    // Cheat detection: if they bet on a team that had already scored when they placed the bet
+    const s = leg.scoreAtBet;
+    if (s) {
+      if (leg.selection === "home" && s.home > 0) return "cheated";
+      if (leg.selection === "away" && s.away > 0) return "cheated";
+      if (leg.selection === "none" && (s.home > 0 || s.away > 0)) return "cheated";
+    }
     return leg.selection === res.firstScorer;
   }
   return false;
 }
 
 function betWins(bet, res) {
-  // Combined bet: all legs must win
-  if (bet.legs?.length) return bet.legs.every((leg) => betLegWins(leg, res));
-  // Single leg (legacy)
-  return betLegWins({ market: bet.market, selection: bet.selection }, res);
+  // Combined bet: all legs must win (any cheated leg = whole bet cheated)
+  if (bet.legs?.length) {
+    const outcomes = bet.legs.map((leg) => betLegWins(leg, res));
+    if (outcomes.includes("cheated")) return "cheated";
+    return outcomes.every(Boolean);
+  }
+  // Single leg — pass scoreAtBet through to the leg checker
+  return betLegWins({ market: bet.market, selection: bet.selection, scoreAtBet: bet.scoreAtBet }, res);
 }
 
 async function settleMatch(matchId) {
@@ -2528,18 +2461,18 @@ async function settleMatch(matchId) {
       const { doc, setDoc, runTransaction } = window._firebaseModules;
       for (const [betId, bet] of Object.entries(matchBets)) {
         if (bet.status !== "open") continue;
-        const won = betWins(bet, res);
+        const outcome = betWins(bet, res);
         await runTransaction(db, async (tx) => {
           const betRef = doc(db, "matches", matchId, "bets", betId);
           const betSnap = await tx.get(betRef);
           if (!betSnap.exists() || betSnap.data().status !== "open") return;
-          if (won) {
+          if (outcome === true) {
             const uref = doc(db, "users", bet.userId);
             const usnap = await tx.get(uref);
             const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
             tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
           }
-          tx.set(betRef, { status: won ? "won" : "lost" }, { merge: true });
+          tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
         });
       }
       await setDoc(doc(db, "results", matchId), res);
@@ -2550,9 +2483,9 @@ async function settleMatch(matchId) {
   } else {
     Object.entries(matchBets).forEach(([betId, bet]) => {
       if (bet.status !== "open") return;
-      const won = betWins(bet, res);
-      bet.status = won ? "won" : "lost";
-      if (won) {
+      const outcome = betWins(bet, res);
+      bet.status = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+      if (outcome === true) {
         const b = balances[bet.userId] || { name: bet.name, balance: 0 };
         b.balance = +(b.balance + bet.potentialWin).toFixed(2);
         balances[bet.userId] = b;
@@ -2584,19 +2517,19 @@ async function forceResettleMatch(matchId) {
     try {
       const { doc, setDoc, runTransaction } = window._firebaseModules;
       for (const [betId, bet] of Object.entries(matchBets)) {
-        const shouldWin = betWins(bet, newRes);
-        const didWin   = bet.status === "won";
-        if (shouldWin === didWin) continue; // no change needed
+        const outcome  = betWins(bet, newRes);
+        const newStatus = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+        if (newStatus === bet.status) continue; // no change needed
         await runTransaction(db, async (tx) => {
           const betRef = doc(db, "matches", matchId, "bets", betId);
           const uref   = doc(db, "users", bet.userId);
           const usnap  = await tx.get(uref);
           const cur    = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
           let newBal   = cur;
-          if (shouldWin && !didWin) newBal = +(cur + bet.potentialWin).toFixed(2);  // was lost, now win
-          if (!shouldWin && didWin) newBal = +(cur - bet.potentialWin).toFixed(2);  // was won, now lost
+          if (outcome === true && bet.status !== "won") newBal = +(cur + bet.potentialWin).toFixed(2);
+          if (outcome !== true && bet.status === "won") newBal = +(cur - bet.potentialWin).toFixed(2);
           tx.set(uref, { balance: newBal }, { merge: true });
-          tx.set(betRef, { status: shouldWin ? "won" : "lost" }, { merge: true });
+          tx.set(betRef, { status: newStatus }, { merge: true });
         });
       }
       await setDoc(doc(db, "results", matchId), newRes);
@@ -2623,117 +2556,6 @@ async function forceResettleMatch(matchId) {
   renderLeaderboard();
 }
 
-// Cancel a premature settlement: reopen all bets and reverse payouts.
-async function adminUnsettleMatch(matchId) {
-  if (!confirm("Annuler le règlement de ce match ? Les paris gagnés seront déduits et tous les paris repasseront en ⏳ En cours.")) return;
-  const matchBets = bets[matchId] || {};
-
-  if (db) {
-    try {
-      const { doc, deleteDoc, runTransaction } = window._firebaseModules;
-      // Reverse won bets (deduct potentialWin already credited)
-      for (const [betId, bet] of Object.entries(matchBets)) {
-        if (bet.status === "won") {
-          await runTransaction(db, async (tx) => {
-            const uref = doc(db, "users", bet.userId);
-            const usnap = await tx.get(uref);
-            const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-            tx.set(uref, { balance: +(cur - (bet.potentialWin ?? 0)).toFixed(2) }, { merge: true });
-            tx.set(doc(db, "matches", matchId, "bets", betId), { status: "open" }, { merge: true });
-          });
-        } else if (bet.status === "lost") {
-          const { doc: d2, setDoc } = window._firebaseModules;
-          await setDoc(d2(db, "matches", matchId, "bets", betId), { status: "open" }, { merge: true });
-        }
-      }
-      // Remove the result document so the match is unsettled
-      await deleteDoc(doc(db, "results", matchId));
-    } catch (err) { console.error(err); showToast("Erreur lors de l'annulation."); return; }
-  } else {
-    Object.entries(matchBets).forEach(([, bet]) => {
-      if (bet.status === "won") {
-        const u = users.find((x) => x.id === bet.userId);
-        if (u) u.balance = +(u.balance - (bet.potentialWin ?? 0)).toFixed(2);
-      }
-      bet.status = "open";
-    });
-    results[matchId] = null;
-  }
-  showToast("🔓 Règlement annulé — paris rouverts !");
-  renderMatchBetting(matchId);
-  renderLeaderboard();
-}
-// If the bet was "open" or "lost": refund the stake.
-// If the bet was "won": deduct the potentialWin (they already got paid).
-async function adminDeleteBet(matchId, betId) {
-  const bet = bets[matchId]?.[betId];
-  if (!bet) { showToast("Pari introuvable."); return; }
-  const refundLabel = bet.status === "won"
-    ? `Ce pari a déjà été gagné (${bet.potentialWin?.toFixed(0)}€ crédités). Supprimer quand même et déduire les gains ?`
-    : `Supprimer ce pari et rembourser ${bet.stake?.toFixed(0)}€ à ${bet.name || "?"} ?`;
-  if (!confirm(refundLabel)) return;
-
-  if (db) {
-    try {
-      const { doc, deleteDoc, runTransaction } = window._firebaseModules;
-      await runTransaction(db, async (tx) => {
-        const betRef = doc(db, "matches", matchId, "bets", betId);
-        const uref   = doc(db, "users", bet.userId);
-        const usnap  = await tx.get(uref);
-        const cur    = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-        let newBal   = cur;
-        if (bet.status === "open" || bet.status === "lost") newBal = +(cur + (bet.stake ?? 0)).toFixed(2);
-        if (bet.status === "won") newBal = +(cur - (bet.potentialWin ?? 0)).toFixed(2);
-        tx.set(uref, { balance: newBal }, { merge: true });
-        tx.delete(betRef);
-      });
-    } catch (err) { console.error(err); showToast("Erreur lors de la suppression."); return; }
-  } else {
-    const u = users.find((x) => x.id === bet.userId);
-    if (u) {
-      if (bet.status === "open" || bet.status === "lost") u.balance = +(u.balance + (bet.stake ?? 0)).toFixed(2);
-      if (bet.status === "won") u.balance = +(u.balance - (bet.potentialWin ?? 0)).toFixed(2);
-    }
-    delete bets[matchId][betId];
-  }
-  showToast(`🗑️ Pari supprimé.`);
-  renderLeaderboard();
-}
-
-// Flip a bet between won and lost, adjusting the player's balance.
-async function adminFlipBet(matchId, betId, newStatus) {
-  const bet = bets[matchId]?.[betId];
-  if (!bet) { showToast("Pari introuvable."); return; }
-  const label = newStatus === "won"
-    ? `Marquer ce pari comme GAGNÉ et créditer ${bet.potentialWin?.toFixed(0)}€ à ${bet.name || "?"} ?`
-    : `Marquer ce pari comme PERDU et déduire ${bet.potentialWin?.toFixed(0)}€ de ${bet.name || "?"} ?`;
-  if (!confirm(label)) return;
-
-  if (db) {
-    try {
-      const { doc, runTransaction } = window._firebaseModules;
-      await runTransaction(db, async (tx) => {
-        const betRef = doc(db, "matches", matchId, "bets", betId);
-        const uref   = doc(db, "users", bet.userId);
-        const usnap  = await tx.get(uref);
-        const cur    = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-        const delta  = newStatus === "won" ? +(bet.potentialWin ?? 0) : -(bet.potentialWin ?? 0);
-        tx.set(uref, { balance: +(cur + delta).toFixed(2) }, { merge: true });
-        tx.set(betRef, { status: newStatus }, { merge: true });
-      });
-    } catch (err) { console.error(err); showToast("Erreur."); return; }
-  } else {
-    const u = users.find((x) => x.id === bet.userId);
-    if (u) {
-      const delta = newStatus === "won" ? +(bet.potentialWin ?? 0) : -(bet.potentialWin ?? 0);
-      u.balance = +(u.balance + delta).toFixed(2);
-    }
-    bet.status = newStatus;
-  }
-  showToast(newStatus === "won" ? "✅ Pari marqué gagné !" : "❌ Pari marqué perdu.");
-  renderLeaderboard();
-}
-
 // ════════════════════════════════════════════════════════════
 //  SCORES EN DIRECT
 // ════════════════════════════════════════════════════════════
@@ -2741,18 +2563,6 @@ let liveScores = {};  // { matchId: { home, away, status } }
 
 const LIVE_STATUSES = ["1H", "2H", "HT", "ET", "BT", "P", "LIVE", "INPLAY", "PEN LIVE"];
 const DONE_STATUSES = ["FT", "AET", "PEN", "MATCH FINISHED", "FINISHED"];
-
-// Betting closes when the match is finished OR past the 90th minute.
-// Live betting (before 90') is allowed with a stake cap.
-function isBettingLocked(ls) {
-  if (!ls) return false;
-  if (DONE_STATUSES.includes(ls.status)) return true;
-  if (LIVE_STATUSES.includes(ls.status)) {
-    const min = parseInt(ls.progress, 10);
-    return !isNaN(min) && min >= 90;
-  }
-  return false;
-}
 
 function norm(s) {
   return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z]/g, "");
@@ -2763,7 +2573,7 @@ async function fetchDayEvents(date) {
     const r = await fetch(`https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=${date}&s=Soccer`);
     if (!r.ok) return [];
     const j = await r.json();
-    return (j.events || []).filter((e) => e.idLeague === WC_LEAGUE_ID);
+    return (j.events || []).filter((e) => +e.idLeague === WC_LEAGUE_ID);
   } catch (_) { return []; }
 }
 
@@ -2832,23 +2642,18 @@ function renderLiveScore(matchId) {
 
 function startLivePolling() {
   refreshLiveScores(false);
-  fetchLiveOdds();  // once at load for pre-match odds
-
-  let _pollInterval = null;
+  fetchLiveOdds(); // pre-match odds once at load
   function schedulePoll() {
     const anyLive = MATCHES.some((m) => {
       const ls = liveScores[m.id];
       return ls && LIVE_STATUSES.includes(ls.status);
     });
-    // Scores: 30s when live, 5min otherwise
-    const scoreDelay = anyLive ? 30 * 1000 : 5 * 60 * 1000;
-    _pollInterval = setTimeout(async () => {
+    setTimeout(async () => {
       await refreshLiveScores(true);
-      // Odds API: only fetch pre-match (Poisson handles live — saves API quota)
-      if (!anyLive) fetchLiveOdds();
+      if (!anyLive) fetchLiveOdds(); // skip odds API during live (Poisson handles it)
       MATCHES.forEach((m) => { if (!m.ceremony) renderMatchBetting(m.id); });
       schedulePoll();
-    }, scoreDelay);
+    }, anyLive ? 30 * 1000 : 5 * 60 * 1000);
   }
   schedulePoll();
 }
@@ -2858,15 +2663,6 @@ const _autoSettling = new Set(); // évite les doubles appels
 async function autoSettleFromLive(matchId) {
   if (results[matchId]?.settled) return;
   if (_autoSettling.has(matchId)) return;
-
-  // Guard: don't auto-settle unless at least 85 minutes have elapsed since kickoff.
-  // Prevents premature settlement when the API glitches and returns "FT" mid-match.
-  const m = MATCHES.find((x) => x.id === matchId);
-  if (m && Date.now() - matchDateTime(m).getTime() < 85 * 60 * 1000) {
-    console.log(`autoSettle ${matchId}: skipped — less than 85 min since kickoff`);
-    return;
-  }
-
   _autoSettling.add(matchId);
 
   const ls = liveScores[matchId];
@@ -2894,18 +2690,18 @@ async function autoSettleFromLive(matchId) {
       // Règle chaque pari dans une transaction atomique pour éviter le double-crédit
       for (const [betId, bet] of Object.entries(matchBets)) {
         if (bet.status !== "open") continue;
-        const won = betWins(bet, res);
+        const outcome = betWins(bet, res);
         await runTransaction(db, async (tx) => {
           const betRef = doc(db, "matches", matchId, "bets", betId);
           const betSnap = await tx.get(betRef);
           if (!betSnap.exists() || betSnap.data().status !== "open") return; // déjà réglé
-          if (won) {
+          if (outcome === true) {
             const uref = doc(db, "users", bet.userId);
             const usnap = await tx.get(uref);
             const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
             tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
           }
-          tx.set(betRef, { status: won ? "won" : "lost" }, { merge: true });
+          tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
         });
       }
       await setDoc(doc(db, "results", matchId), res);
@@ -2916,9 +2712,9 @@ async function autoSettleFromLive(matchId) {
   } else {
     Object.entries(matchBets).forEach(([, bet]) => {
       if (bet.status !== "open") return;
-      const won = betWins(bet, res);
-      bet.status = won ? "won" : "lost";
-      if (won) {
+      const outcome = betWins(bet, res);
+      bet.status = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+      if (outcome === true) {
         const b = balances[bet.userId] || { name: bet.name, balance: 0 };
         b.balance = +(b.balance + bet.potentialWin).toFixed(2);
         balances[bet.userId] = b;
@@ -2928,6 +2724,7 @@ async function autoSettleFromLive(matchId) {
     updateBalanceDisplay();
   }
 
+  const m = MATCHES.find((x) => x.id === matchId);
   showToast(`🏁 Match terminé : ${m?.home.name} ${hs}-${as} ${m?.away.name} — paris réglés automatiquement !`);
   renderMatchBetting(matchId);
   renderLeaderboard();
@@ -3100,6 +2897,67 @@ async function scheduleNotifications() {
   });
 }
 
+// ── Confetti ────────────────────────────────────────────────
+function fireConfetti() {
+  const canvas = document.getElementById("confetti-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const COLORS = ["#c9a227","#ffd700","#4ade80","#f87171","#60a5fa","#e879f9","#fff"];
+  const pieces = Array.from({ length: 120 }, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * -canvas.height * .5,
+    w: 7 + Math.random() * 7,
+    h: 4 + Math.random() * 4,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    rot: Math.random() * Math.PI * 2,
+    vx: (Math.random() - .5) * 3,
+    vy: 2 + Math.random() * 4,
+    vr: (Math.random() - .5) * .15,
+    opacity: 1,
+  }));
+
+  let frame;
+  const draw = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let alive = false;
+    pieces.forEach((p) => {
+      p.x  += p.vx; p.y += p.vy; p.rot += p.vr;
+      p.vy += .07;  // gravity
+      if (p.y > canvas.height * .7) p.opacity = Math.max(0, p.opacity - .025);
+      if (p.opacity > 0) { alive = true; }
+      ctx.save();
+      ctx.globalAlpha = p.opacity;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    });
+    if (alive) frame = requestAnimationFrame(draw);
+    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+  cancelAnimationFrame(frame);
+  draw();
+}
+
+// ── Best bet banner ──────────────────────────────────────────
+function bestBetBanner(matchId) {
+  const allBets = Object.values(bets[matchId] || {});
+  const won = allBets.filter((b) => b.status === "won");
+  if (!won.length) return "";
+  const best = won.reduce((a, b) => b.potentialWin > a.potentialWin ? b : a, won[0]);
+  const gain = (best.potentialWin - best.stake).toFixed(0);
+  return `<div class="best-bet-banner">
+    <div class="best-bet-label">💰 Meilleur pari du match</div>
+    <div class="best-bet-main">${best.name} · ${best.label} @ ${best.odds.toFixed(2)}
+      <span class="best-bet-gain"> +${gain} €</span>
+    </div>
+  </div>`;
+}
+
 function showToast(msg) {
   const t = document.createElement("div");
   t.style.cssText = `
@@ -3139,42 +2997,47 @@ function setupNameModal() {
   const existingName = localStorage.getItem("wc2026_name");
   if (existingName) return; // initUser() will handle it
 
-  function submitName() {
+  async function confirm() {
     const name = input.value.trim();
     if (!name) { input.focus(); return; }
     if (name.length < 2) { setModalError("Prénom trop court."); return; }
 
-    // ── Register immediately — never block the user ─────────
+    btn.disabled = true;
+    btn.textContent = "Vérification…";
+    clearModalError();
+
+    // ── Check name uniqueness in Firebase ──────────────────
+    if (db) {
+      try {
+        const { collection, getDocs } = window._firebaseModules;
+        const snap = await getDocs(collection(db, "users"));
+        const myUid = userId();
+        const takenBy = snap.docs.find((d) =>
+          d.id !== myUid &&
+          (d.data().name || "").toLowerCase() === name.toLowerCase()
+        );
+        if (takenBy) {
+          setModalError(`❌ "${name}" est déjà pris — essaie "${name}2" ou un surnom.`);
+          btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
+          return;
+        }
+      } catch (_) { /* hors-ligne → on laisse passer */ }
+    }
+
+    // ── Enregistrement ─────────────────────────────────────
     localStorage.setItem("wc2026_name", name);
     currentUser = { id: userId(), name };
     document.getElementById("name-modal").classList.add("hidden");
     updateIdentityBar();
     renderMatches();
     autoEnableNotifications();
-    showWelcome(name);
 
-    // ── Background check: restore existing account if name matches ──
-    if (db) {
-      const { collection, getDocs } = window._firebaseModules;
-      getDocs(collection(db, "users")).then((snap) => {
-        const myUid = userId();
-        const existing = snap.docs.find((d) =>
-          d.id !== myUid &&
-          (d.data().name || "").toLowerCase() === name.toLowerCase()
-        );
-        if (existing) {
-          localStorage.setItem("wc2026_uid", existing.id);
-          localStorage.setItem("wc2026_name", name);
-          currentUser = { id: existing.id, name };
-          updateIdentityBar();
-          showToast(`✅ Compte restauré ! Bon retour ${name} 🎉`);
-        }
-      }).catch(() => {});
-    }
+    // ── Notification de bienvenue ──────────────────────────
+    showWelcome(name);
   }
 
-  btn.addEventListener("click", submitName);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") submitName(); });
+  btn.addEventListener("click", confirm);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); });
 }
 
 function showWelcome(name) {
@@ -3575,7 +3438,6 @@ function _renderAdminDashboard(el) {
     betsHtml += `<div class="admin-bet-match">${m.home.name} vs ${m.away.name}${settled ? ` ✅${resLabel}` : ""}
       ${needsRettle ? `<button class="admin-reprice" style="background:#ef4444" onclick="settleOpenBets('${m.id}').then(()=>renderAdminDashboard())">⚠️ Régler ${openCount} pari(s) en attente</button>` : ""}
       ${settled ? `<button class="admin-reprice" style="background:#7c3aed;margin-left:4px" onclick="document.getElementById('force-${m.id}').style.display=(document.getElementById('force-${m.id}').style.display==='none'?'':'none')">✏️ Corriger résultat</button>` : ""}
-      ${settled ? `<button class="admin-reprice" style="background:#dc2626;margin-left:4px" onclick="adminUnsettleMatch('${m.id}').then(()=>renderAdminDashboard())">🔓 Annuler règlement</button>` : ""}
     </div>
     ${settled ? `<div id="force-${m.id}" style="display:none;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;padding:10px;margin-bottom:6px">
       <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">Score enregistré : ${res.homeScore ?? "?"}–${res.awayScore ?? "?"}. Corriger si faux :</div>
@@ -3594,17 +3456,9 @@ function _renderAdminDashboard(el) {
       </div>
       <button class="settle-confirm" style="background:#7c3aed;margin-top:8px" onclick="forceResettleMatch('${m.id}').then(()=>renderAdminDashboard())">🔧 Appliquer la correction</button>
     </div>` : ""}`;
-    Object.entries(mb).forEach(([bid, b]) => {
+    arr.forEach((b) => {
       const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
-      const flipBtn = b.status === "lost"
-        ? `<button class="admin-del" style="background:rgba(74,222,128,.15);border-color:#4ade80;color:#4ade80" onclick="adminFlipBet('${m.id}','${bid}','won').then(()=>renderAdminDashboard())" title="Marquer comme gagné">✅</button>`
-        : b.status === "won"
-        ? `<button class="admin-del" style="background:rgba(239,68,68,.15);border-color:#ef4444;color:#ef4444" onclick="adminFlipBet('${m.id}','${bid}','lost').then(()=>renderAdminDashboard())" title="Marquer comme perdu">❌</button>`
-        : "";
-      betsHtml += `<div class="admin-bet-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <span>${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</span>
-        <span style="display:flex;gap:4px">${flipBtn}<button class="admin-del" onclick="adminDeleteBet('${m.id}','${bid}').then(()=>renderAdminDashboard())" title="Supprimer ce pari">🗑</button></span>
-      </div>`;
+      betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</div>`;
     });
   });
   if (!totalBets) betsHtml += `<div class="admin-dim">Aucun pari encore.</div>`;
@@ -3636,9 +3490,9 @@ function _renderAdminDashboard(el) {
 (async () => {
   await registerSW();
   setupInstallBanner();
-  setupNameModal(); // must run before Firebase wait — button needs its handler immediately
   await initFirebase();
   trackInstall();
+  setupNameModal();
 
   if (initUser()) {
     renderMatches();
