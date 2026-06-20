@@ -675,6 +675,23 @@ footer strong { color: var(--gold-light); }
   border-radius: 8px; padding: 8px 12px; font-size: .88rem;
   margin-bottom: 12px; color: var(--gold-light);
 }
+.best-bet-banner {
+  background: linear-gradient(135deg, rgba(201,162,39,.18), rgba(250,200,80,.08));
+  border: 1.5px solid rgba(201,162,39,.5); border-radius: 10px;
+  padding: 10px 14px; font-size: .85rem; margin-bottom: 10px;
+  animation: bestBetPop .4s cubic-bezier(.34,1.56,.64,1);
+}
+.best-bet-banner .best-bet-label { color: var(--text-muted); font-size: .75rem; margin-bottom: 3px; }
+.best-bet-banner .best-bet-main { color: var(--gold-light); font-weight: 700; font-size: .95rem; }
+.best-bet-banner .best-bet-gain { color: #4ade80; font-weight: 800; }
+@keyframes bestBetPop {
+  from { opacity: 0; transform: scale(.92) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+#confetti-canvas {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 9999;
+}
 .bet-locked {
   background: var(--dark3); border: 1px dashed var(--card-border);
   border-radius: 8px; padding: 12px; font-size: .85rem;
@@ -926,6 +943,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
+<canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
 <div id="install-banner" class="install-banner hidden">
@@ -1594,8 +1612,19 @@ function subscribeToMatch(matchId) {
   // Paris
   const betsRef = collection(db, "matches", matchId, "bets");
   unsubscribers.push(onSnapshot(betsRef, (snap) => {
+    const prev = bets[matchId] || {};
     bets[matchId] = {};
     snap.forEach((d) => { bets[matchId][d.id] = d.data(); });
+    // Confetti when one of MY bets just flipped to "won"
+    if (currentUser) {
+      snap.docChanges().forEach((change) => {
+        const d = change.doc.data();
+        if (d.userId === currentUser.id && d.status === "won" &&
+            prev[change.doc.id]?.status !== "won") {
+          fireConfetti();
+        }
+      });
+    }
     renderMatchBetting(matchId);
   }));
 
@@ -2109,6 +2138,7 @@ function renderMatchBetting(matchId) {
     html += `<div class="result-banner">
       🏁 Score final : <strong>${m.home.name} ${result.homeScore} - ${result.awayScore} ${m.away.name}</strong>
     </div>`;
+    html += bestBetBanner(matchId);
   }
 
   // Mes paris sur ce match
@@ -2829,6 +2859,67 @@ async function scheduleNotifications() {
       }, delay);
     }
   });
+}
+
+// ── Confetti ────────────────────────────────────────────────
+function fireConfetti() {
+  const canvas = document.getElementById("confetti-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const COLORS = ["#c9a227","#ffd700","#4ade80","#f87171","#60a5fa","#e879f9","#fff"];
+  const pieces = Array.from({ length: 120 }, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * -canvas.height * .5,
+    w: 7 + Math.random() * 7,
+    h: 4 + Math.random() * 4,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    rot: Math.random() * Math.PI * 2,
+    vx: (Math.random() - .5) * 3,
+    vy: 2 + Math.random() * 4,
+    vr: (Math.random() - .5) * .15,
+    opacity: 1,
+  }));
+
+  let frame;
+  const draw = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let alive = false;
+    pieces.forEach((p) => {
+      p.x  += p.vx; p.y += p.vy; p.rot += p.vr;
+      p.vy += .07;  // gravity
+      if (p.y > canvas.height * .7) p.opacity = Math.max(0, p.opacity - .025);
+      if (p.opacity > 0) { alive = true; }
+      ctx.save();
+      ctx.globalAlpha = p.opacity;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    });
+    if (alive) frame = requestAnimationFrame(draw);
+    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+  cancelAnimationFrame(frame);
+  draw();
+}
+
+// ── Best bet banner ──────────────────────────────────────────
+function bestBetBanner(matchId) {
+  const allBets = Object.values(bets[matchId] || {});
+  const won = allBets.filter((b) => b.status === "won");
+  if (!won.length) return "";
+  const best = won.reduce((a, b) => b.potentialWin > a.potentialWin ? b : a, won[0]);
+  const gain = (best.potentialWin - best.stake).toFixed(0);
+  return `<div class="best-bet-banner">
+    <div class="best-bet-label">💰 Meilleur pari du match</div>
+    <div class="best-bet-main">${best.name} · ${best.label} @ ${best.odds.toFixed(2)}
+      <span class="best-bet-gain"> +${gain} €</span>
+    </div>
+  </div>`;
 }
 
 function showToast(msg) {
