@@ -774,6 +774,7 @@ footer strong { color: var(--gold-light); }
 .mybet.open { border-left-color: var(--gold); }
 .mybet.won { border-left-color: var(--green); background: rgba(34,197,94,.08); }
 .mybet.lost { border-left-color: var(--red); background: rgba(239,68,68,.06); opacity: .8; }
+.mybet.cheated { border-left-color: #f97316; background: rgba(249,115,22,.10); }
 .mybet-sel { font-weight: 700; }
 .mybet-info { font-size: .78rem; color: var(--text-muted); }
 
@@ -2146,9 +2147,10 @@ function renderMatchBetting(matchId) {
   if (myBets.length) {
     html += `<div class="mybets-title">Mes paris</div><div class="mybets-list">`;
     myBets.forEach(([, b]) => {
-      const stCls = b.status === "won" ? "won" : b.status === "lost" ? "lost" : "open";
+      const stCls = b.status === "won" ? "won" : b.status === "lost" ? "lost" : b.status === "cheated" ? "cheated" : "open";
       const stTxt = b.status === "won" ? `✅ Gagné +${b.potentialWin.toFixed(2)} €`
         : b.status === "lost" ? "❌ Perdu"
+        : b.status === "cheated" ? "🚨 Pari invalide — triche détectée. Mise perdue."
         : `⏳ En cours · gain potentiel ${b.potentialWin.toFixed(2)} €`;
       html += `<div class="mybet ${stCls}">
         <span class="mybet-sel">${b.label}</span>
@@ -2232,7 +2234,7 @@ function renderMatchBetting(matchId) {
   if (allBets.length) {
     html += `<div class="allbets-title">📋 Paris du groupe (${allBets.length})</div><div class="allbets-list">`;
     allBets.forEach((b) => {
-      const icon = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
+      const icon = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : b.status === "cheated" ? "🚨" : "⏳";
       html += `<span class="allbet-tag">${icon} <strong>${b.name}</strong> · ${b.label} · ${b.stake.toFixed(0)}€</span>`;
     });
     html += `</div>`;
@@ -2292,6 +2294,10 @@ async function placeBet(matchId) {
     stake: +stake.toFixed(2), odds: draft.odds, potentialWin,
     status: "open", createdAt: Date.now(),
   };
+  // Store current score so we can detect firstScorer bets placed after a goal
+  if (_isLive && _ls) {
+    bet.scoreAtBet = { home: _ls.homeScore ?? 0, away: _ls.awayScore ?? 0 };
+  }
 
   if (db) {
     try {
@@ -2396,6 +2402,7 @@ function openSettleForm(matchId) {
 }
 
 // ── Règlement des paris ────────────────────────────────────
+// Returns true (win), false (loss), or "cheated" (firstScorer placed after goal already in)
 function betWins(bet, res) {
   if (bet.market === "result") {
     const actual = res.homeScore > res.awayScore ? "home" : res.homeScore < res.awayScore ? "away" : "draw";
@@ -2406,6 +2413,14 @@ function betWins(bet, res) {
     return bet.selection === "over" ? total > 2.5 : total < 2.5;
   }
   if (bet.market === "firstScorer") {
+    // Cheat detection: if they bet on a team that had already scored when they placed the bet
+    const s = bet.scoreAtBet;
+    if (s) {
+      if (bet.selection === "home" && s.home > 0) return "cheated";
+      if (bet.selection === "away" && s.away > 0) return "cheated";
+      // "none" (no goals) placed after a goal → also cheated
+      if (bet.selection === "none" && (s.home > 0 || s.away > 0)) return "cheated";
+    }
     return bet.selection === res.firstScorer;
   }
   return false;
@@ -2434,18 +2449,18 @@ async function settleMatch(matchId) {
       const { doc, setDoc, runTransaction } = window._firebaseModules;
       for (const [betId, bet] of Object.entries(matchBets)) {
         if (bet.status !== "open") continue;
-        const won = betWins(bet, res);
+        const outcome = betWins(bet, res);
         await runTransaction(db, async (tx) => {
           const betRef = doc(db, "matches", matchId, "bets", betId);
           const betSnap = await tx.get(betRef);
           if (!betSnap.exists() || betSnap.data().status !== "open") return;
-          if (won) {
+          if (outcome === true) {
             const uref = doc(db, "users", bet.userId);
             const usnap = await tx.get(uref);
             const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
             tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
           }
-          tx.set(betRef, { status: won ? "won" : "lost" }, { merge: true });
+          tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
         });
       }
       await setDoc(doc(db, "results", matchId), res);
@@ -2456,9 +2471,9 @@ async function settleMatch(matchId) {
   } else {
     Object.entries(matchBets).forEach(([betId, bet]) => {
       if (bet.status !== "open") return;
-      const won = betWins(bet, res);
-      bet.status = won ? "won" : "lost";
-      if (won) {
+      const outcome = betWins(bet, res);
+      bet.status = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+      if (outcome === true) {
         const b = balances[bet.userId] || { name: bet.name, balance: 0 };
         b.balance = +(b.balance + bet.potentialWin).toFixed(2);
         balances[bet.userId] = b;
@@ -2490,19 +2505,19 @@ async function forceResettleMatch(matchId) {
     try {
       const { doc, setDoc, runTransaction } = window._firebaseModules;
       for (const [betId, bet] of Object.entries(matchBets)) {
-        const shouldWin = betWins(bet, newRes);
-        const didWin   = bet.status === "won";
-        if (shouldWin === didWin) continue; // no change needed
+        const outcome  = betWins(bet, newRes);
+        const newStatus = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+        if (newStatus === bet.status) continue; // no change needed
         await runTransaction(db, async (tx) => {
           const betRef = doc(db, "matches", matchId, "bets", betId);
           const uref   = doc(db, "users", bet.userId);
           const usnap  = await tx.get(uref);
           const cur    = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
           let newBal   = cur;
-          if (shouldWin && !didWin) newBal = +(cur + bet.potentialWin).toFixed(2);  // was lost, now win
-          if (!shouldWin && didWin) newBal = +(cur - bet.potentialWin).toFixed(2);  // was won, now lost
+          if (outcome === true && bet.status !== "won") newBal = +(cur + bet.potentialWin).toFixed(2);
+          if (outcome !== true && bet.status === "won") newBal = +(cur - bet.potentialWin).toFixed(2);
           tx.set(uref, { balance: newBal }, { merge: true });
-          tx.set(betRef, { status: shouldWin ? "won" : "lost" }, { merge: true });
+          tx.set(betRef, { status: newStatus }, { merge: true });
         });
       }
       await setDoc(doc(db, "results", matchId), newRes);
@@ -2654,18 +2669,18 @@ async function autoSettleFromLive(matchId) {
       // Règle chaque pari dans une transaction atomique pour éviter le double-crédit
       for (const [betId, bet] of Object.entries(matchBets)) {
         if (bet.status !== "open") continue;
-        const won = betWins(bet, res);
+        const outcome = betWins(bet, res);
         await runTransaction(db, async (tx) => {
           const betRef = doc(db, "matches", matchId, "bets", betId);
           const betSnap = await tx.get(betRef);
           if (!betSnap.exists() || betSnap.data().status !== "open") return; // déjà réglé
-          if (won) {
+          if (outcome === true) {
             const uref = doc(db, "users", bet.userId);
             const usnap = await tx.get(uref);
             const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
             tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
           }
-          tx.set(betRef, { status: won ? "won" : "lost" }, { merge: true });
+          tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
         });
       }
       await setDoc(doc(db, "results", matchId), res);
@@ -2676,9 +2691,9 @@ async function autoSettleFromLive(matchId) {
   } else {
     Object.entries(matchBets).forEach(([, bet]) => {
       if (bet.status !== "open") return;
-      const won = betWins(bet, res);
-      bet.status = won ? "won" : "lost";
-      if (won) {
+      const outcome = betWins(bet, res);
+      bet.status = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+      if (outcome === true) {
         const b = balances[bet.userId] || { name: bet.name, balance: 0 };
         b.balance = +(b.balance + bet.potentialWin).toFixed(2);
         balances[bet.userId] = b;
