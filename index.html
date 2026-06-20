@@ -1612,19 +1612,27 @@ function subscribeToMatch(matchId) {
 
   // Paris
   const betsRef = collection(db, "matches", matchId, "bets");
+  let _betsFirstLoad = true;
   unsubscribers.push(onSnapshot(betsRef, (snap) => {
     const prev = bets[matchId] || {};
     bets[matchId] = {};
     snap.forEach((d) => { bets[matchId][d.id] = d.data(); });
-    // Confetti when one of MY bets just flipped to "won"
     if (currentUser) {
-      snap.docChanges().forEach((change) => {
-        const d = change.doc.data();
-        if (d.userId === currentUser.id && d.status === "won" &&
-            prev[change.doc.id]?.status !== "won") {
-          fireConfetti();
-        }
-      });
+      if (_betsFirstLoad) {
+        // On app open: fire confetti if user already has any won bets
+        const hasWon = snap.docs.some((d) => d.data().userId === currentUser.id && d.data().status === "won");
+        if (hasWon) fireConfetti();
+        _betsFirstLoad = false;
+      } else {
+        // Real-time: fire when a bet transitions to "won"
+        snap.docChanges().forEach((change) => {
+          const d = change.doc.data();
+          if (d.userId === currentUser.id && d.status === "won" &&
+              prev[change.doc.id]?.status !== "won") {
+            fireConfetti();
+          }
+        });
+      }
     }
     renderMatchBetting(matchId);
   }));
