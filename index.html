@@ -2307,7 +2307,7 @@ function renderMatchBetting(matchId) {
         const la = isLive ? (parseInt(ls.away, 10) || 0) : 0;
         opts.forEach((sel) => {
           const o = odds[market][sel];
-          const active = draft && draft.market === market && draft.selection === sel;
+          const active = draft?.legs?.some((l) => l.market === market && l.selection === sel);
           const short = market === "result" ? (sel === "home" ? "1" : sel === "draw" ? "N" : "2")
             : market === "totals" ? (sel === "over" ? "+2,5" : "−2,5")
             : (sel === "home" ? m.home.name : sel === "away" ? m.away.name : "Aucun");
@@ -2332,14 +2332,22 @@ function renderMatchBetting(matchId) {
       });
       // Bulletin de pari
       if (draft) {
+        const legsHtml = draft.legs.map((leg) =>
+          `<div class="betslip-leg"><span>${leg.label}</span><span class="betslip-odd">@ ${leg.odds.toFixed(2)}</span></div>`
+        ).join("");
+        const combinedLine = draft.legs.length > 1
+          ? `<div class="betslip-combined-odds">🎯 Cote combinée : <strong>${draft.odds.toFixed(2)}</strong></div>`
+          : "";
         html += `<div class="betslip">
-          <div class="betslip-sel">${selectionLabel(m, draft.market, draft.selection)} <span class="betslip-odd">@ ${draft.odds.toFixed(2)}</span></div>
+          ${legsHtml}
+          ${combinedLine}
           <div class="betslip-row">
             <input type="number" id="stake-${matchId}" class="stake-input" min="1" step="1"
               max="${maxStake}" placeholder="Mise €" oninput="updatePotential('${matchId}')" />
             <span class="potential" id="potential-${matchId}">Gain : —</span>
             <button class="place-bet-btn" onclick="placeBet('${matchId}')">Parier 🎯</button>
           </div>
+          <div class="betslip-clear"><button onclick="betDraft['${matchId}']=null;renderMatchBetting('${matchId}')">✕ Effacer</button></div>
         </div>`;
       }
       } // fin else (pas live/done)
@@ -2367,9 +2375,36 @@ function renderMatchBetting(matchId) {
 }
 
 // ── Sélection d'un pari ────────────────────────────────────
-function selectBet(matchId, market, selection, odds) {
+function selectBet(matchId, market, selection, oddVal) {
   const m = MATCHES.find((x) => x.id === matchId);
-  betDraft[matchId] = { market, selection, odds, label: selectionLabel(m, market, selection) };
+  const prev = betDraft[matchId];
+  const legs = prev?.legs ? [...prev.legs] : [];
+
+  const idx = legs.findIndex((l) => l.market === market);
+  if (idx !== -1 && legs[idx].selection === selection) {
+    // Toggle off — same leg clicked again
+    legs.splice(idx, 1);
+  } else if (idx !== -1) {
+    // Replace leg for this market
+    legs[idx] = { market, selection, odds: oddVal, label: selectionLabel(m, market, selection) };
+  } else {
+    // Add new leg
+    legs.push({ market, selection, odds: oddVal, label: selectionLabel(m, market, selection) });
+  }
+
+  if (!legs.length) {
+    betDraft[matchId] = null;
+  } else {
+    const combinedOdds = +legs.reduce((acc, l) => acc * l.odds, 1).toFixed(2);
+    betDraft[matchId] = {
+      legs,
+      odds: combinedOdds,
+      // keep top-level fields for backward-compat single-leg checks
+      market: legs[0].market,
+      selection: legs[0].selection,
+      label: legs.length === 1 ? legs[0].label : legs.map((l) => l.label).join(" + "),
+    };
+  }
   renderMatchBetting(matchId);
 }
 
@@ -2419,15 +2454,20 @@ async function placeBet(matchId) {
 
   const potentialWin = +(stake * draft.odds).toFixed(2);
   const betId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random().toString(36).slice(2));
+  const scoreAtBet = (_isLive && _ls)
+    ? { home: parseInt(_ls.home, 10) || 0, away: parseInt(_ls.away, 10) || 0 }
+    : null;
   const bet = {
     userId: currentUser.id, name: currentUser.name,
-    market: draft.market, selection: draft.selection, label: draft.label,
+    market: draft.legs[0].market, selection: draft.legs[0].selection, label: draft.label,
     stake: +stake.toFixed(2), odds: draft.odds, potentialWin,
     status: "open", createdAt: Date.now(),
   };
-  // Store current score so we can detect firstScorer bets placed after a goal
-  if (_isLive && _ls) {
-    bet.scoreAtBet = { home: parseInt(_ls.home, 10) || 0, away: parseInt(_ls.away, 10) || 0 };
+  // For combined bets, store all legs (each leg gets its own scoreAtBet for cheat detection)
+  if (draft.legs.length > 1) {
+    bet.legs = draft.legs.map((l) => ({ ...l, ...(scoreAtBet ? { scoreAtBet } : {}) }));
+  } else if (scoreAtBet) {
+    bet.scoreAtBet = scoreAtBet;
   }
 
   if (db) {
