@@ -3643,9 +3643,14 @@ function _renderAdminDashboard(el) {
       </div>
       <button class="settle-confirm" style="background:#7c3aed;margin-top:8px" onclick="forceResettleMatch('${m.id}').then(()=>renderAdminDashboard())">🔧 Appliquer la correction</button>
     </div>` : ""}`;
-    arr.forEach((b) => {
-      const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : "⏳";
-      betsHtml += `<div class="admin-bet-row">${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}</div>`;
+    arr.forEach((b, _, all) => {
+      const betId = Object.entries(bets[m.id] || {}).find(([, v]) => v === b)?.[0] || "";
+      const st = b.status === "won" ? "✅" : b.status === "lost" ? "❌" : b.status === "cheated" ? "🚨" : "⏳";
+      const ts = b.createdAt ? ` · ${fmtDate(b.createdAt)}` : "";
+      betsHtml += `<div class="admin-bet-row" style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+        <span>${st} <strong>${b.name || "?"}</strong> · ${b.label || "?"} · ${num(b.stake).toFixed(0)}€ @ ${num(b.odds).toFixed(2)}<span class="admin-dim">${ts}</span></span>
+        <button class="admin-del" title="Annuler / rembourser ce pari" onclick="adminCancelBet('${m.id}','${betId}',${num(b.stake)},${num(b.potentialWin)},'${(b.name||'').replace(/'/g,"\\'")}')">🗑️</button>
+      </div>`;
     });
   });
   if (!totalBets) betsHtml += `<div class="admin-dim">Aucun pari encore.</div>`;
@@ -3701,6 +3706,59 @@ async function cancelBet(matchId, betId, stake) {
   } catch (err) {
     if (err.message === "not_found") showToast("⛔ Pari introuvable.");
     else if (err.message === "not_open") showToast("⛔ Ce pari ne peut plus être annulé.");
+    else { console.error(err); showToast("Erreur : " + err.message); }
+  }
+}
+
+// ── Admin : annuler un pari avec choix du remboursement ───
+async function adminCancelBet(matchId, betId, stake, potentialWin, playerName) {
+  if (!betId) { showToast("ID de pari introuvable."); return; }
+  if (!db) { showToast("Mode démo non disponible."); return; }
+
+  const choice = prompt(
+    `Annuler le pari de ${playerName} (mise : ${stake.toFixed(2)} €) ?\n\n` +
+    `Tape le montant à REMBOURSER sur son solde :\n` +
+    `  • ${stake.toFixed(2)}  → remboursement complet de la mise\n` +
+    `  • ${potentialWin.toFixed(2)}  → crédit du gain complet\n` +
+    `  • 0  → aucun remboursement (mise perdue)\n` +
+    `  • nombre négatif → déduire de son solde\n\n` +
+    `Montant (€) :`,
+    stake.toFixed(2)
+  );
+  if (choice === null) return; // annulé
+  const refund = parseFloat(choice);
+  if (isNaN(refund)) { showToast("Montant invalide."); return; }
+
+  try {
+    const { doc, deleteDoc, runTransaction } = window._firebaseModules;
+    await runTransaction(db, async (tx) => {
+      const betRef = doc(db, "matches", matchId, "bets", betId);
+      const betSnap = await tx.get(betRef);
+      if (!betSnap.exists()) throw new Error("not_found");
+      tx.delete(betRef);
+      if (refund !== 0) {
+        const uid = betSnap.data().userId;
+        const uref = doc(db, "users", uid);
+        const usnap = await tx.get(uref);
+        const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+        tx.set(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
+      }
+    });
+
+    // Update local state
+    const uid = bets[matchId]?.[betId]?.userId;
+    if (bets[matchId]) delete bets[matchId][betId];
+    if (uid && balances[uid] && refund !== 0) {
+      balances[uid].balance = +(balances[uid].balance + refund).toFixed(2);
+    }
+
+    const msg = refund > 0 ? `remboursement de ${refund.toFixed(2)} €`
+      : refund < 0 ? `déduction de ${Math.abs(refund).toFixed(2)} €`
+      : "aucun remboursement";
+    showToast(`🗑️ Pari de ${playerName} supprimé — ${msg}.`);
+    renderAdminDashboard();
+  } catch (err) {
+    if (err.message === "not_found") showToast("Pari introuvable (déjà supprimé ?).");
     else { console.error(err); showToast("Erreur : " + err.message); }
   }
 }
