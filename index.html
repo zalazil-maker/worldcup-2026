@@ -3746,9 +3746,10 @@ async function penalizeMatchCheaters(matchId, goalTs) {
         tx.set(betRef, { status: "cheated" }, { merge: true });
 
         const uid = bet.userId;
-        const balRef = doc(db, "balances", uid);
-        const curBal = (balances[uid]?.balance ?? 0);
-        tx.set(balRef, { balance: +(curBal - FINE).toFixed(2) }, { merge: true });
+        const uref = doc(db, "users", uid);
+        const usnap = await tx.get(uref);
+        const curBal = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+        tx.set(uref, { balance: +(curBal - FINE).toFixed(2) }, { merge: true });
       }
     });
 
