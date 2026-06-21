@@ -2265,7 +2265,7 @@ function renderMatchBetting(matchId) {
             <span class="mybet-sel">${b.label}</span>
             <span class="mybet-info">${b.stake.toFixed(2)} € @ ${b.odds.toFixed(2)} — ${stTxt}${ts}</span>
           </div>
-          ${canDelete ? `<button class="mybet-del-btn" onclick="cancelBet('${matchId}','${betId}',${b.stake})" title="Annuler ce pari">✕</button>` : ""}
+          ${canDelete ? `<button class="mybet-del-btn" onclick="cancelBet('${matchId}','${betId}',${b.stake},${b.potentialWin})" title="Annuler ce pari">✕</button>` : ""}
         </div>
       </div>`;
     });
@@ -3679,27 +3679,43 @@ function _renderAdminDashboard(el) {
 }
 
 // ── Annuler un pari ouvert ─────────────────────────────────
-async function cancelBet(matchId, betId, stake) {
+async function cancelBet(matchId, betId, stake, potentialWin) {
   if (!currentUser) return;
-  if (!confirm(`Annuler ce pari et récupérer ${(+stake).toFixed(2)} € ?`)) return;
   if (!db) { showToast("Mode démo : annulation non disponible."); return; }
+
+  const choice = prompt(
+    `Annuler ce pari (mise : ${(+stake).toFixed(2)} €) ?\n\n` +
+    `Montant à récupérer sur ton solde :\n` +
+    `  • ${(+stake).toFixed(2)}  → remboursement complet\n` +
+    `  • 0  → aucun remboursement\n\n` +
+    `Montant (€) :`,
+    (+stake).toFixed(2)
+  );
+  if (choice === null) return;
+  const refund = parseFloat(choice);
+  if (isNaN(refund) || refund < 0) { showToast("Montant invalide."); return; }
+
   try {
-    const { doc, deleteDoc, runTransaction } = window._firebaseModules;
+    const { doc, runTransaction } = window._firebaseModules;
     await runTransaction(db, async (tx) => {
       const betRef = doc(db, "matches", matchId, "bets", betId);
       const betSnap = await tx.get(betRef);
       if (!betSnap.exists()) throw new Error("not_found");
       if (betSnap.data().status !== "open") throw new Error("not_open");
-      const uref = doc(db, "users", currentUser.id);
-      const usnap = await tx.get(uref);
-      const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-      tx.set(uref, { balance: +(cur + stake).toFixed(2) }, { merge: true });
       tx.delete(betRef);
+      if (refund > 0) {
+        const uref = doc(db, "users", currentUser.id);
+        const usnap = await tx.get(uref);
+        const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+        tx.set(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
+      }
     });
-    // Update local state
     if (bets[matchId]) delete bets[matchId][betId];
-    if (balances[currentUser.id]) balances[currentUser.id].balance = +(balances[currentUser.id].balance + stake).toFixed(2);
-    showToast(`↩️ Pari annulé — ${(+stake).toFixed(2)} € remboursés.`);
+    if (refund > 0 && balances[currentUser.id]) {
+      balances[currentUser.id].balance = +(balances[currentUser.id].balance + refund).toFixed(2);
+    }
+    const msg = refund > 0 ? `${refund.toFixed(2)} € remboursés.` : "aucun remboursement.";
+    showToast(`↩️ Pari annulé — ${msg}`);
     renderMatchBetting(matchId);
     renderLeaderboard();
     updateBalanceDisplay();
