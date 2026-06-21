@@ -782,7 +782,10 @@ footer strong { color: var(--gold-light); }
 .mybet.lost { border-left-color: var(--red); background: rgba(239,68,68,.06); opacity: .8; }
 .mybet.cheated { border-left-color: #f97316; background: rgba(249,115,22,.10); }
 .mybet-sel { font-weight: 700; }
-.mybet-info { font-size: .78rem; color: var(--text-muted); }
+.mybet-info { font-size: .78rem; color: var(--text-muted); display: block; margin-top: 2px; }
+.mybet-ts { opacity: .7; }
+.mybet-del-btn { background: none; border: 1px solid rgba(239,68,68,.4); color: #f87171; border-radius: 6px; padding: 2px 7px; font-size: .8rem; cursor: pointer; flex-shrink: 0; }
+.mybet-del-btn:hover { background: rgba(239,68,68,.15); border-color: #f87171; }
 
 /* All bets */
 .allbets-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2248,15 +2251,22 @@ function renderMatchBetting(matchId) {
   const myBets = Object.entries(matchBets).filter(([, b]) => b.userId === currentUser?.id);
   if (myBets.length) {
     html += `<div class="mybets-title">Mes paris</div><div class="mybets-list">`;
-    myBets.forEach(([, b]) => {
+    myBets.forEach(([betId, b]) => {
       const stCls = b.status === "won" ? "won" : b.status === "lost" ? "lost" : b.status === "cheated" ? "cheated" : "open";
       const stTxt = b.status === "won" ? `✅ Gagné +${b.potentialWin.toFixed(2)} €`
         : b.status === "lost" ? "❌ Perdu"
         : b.status === "cheated" ? "🚨 Pari invalide — triche détectée. Mise perdue."
         : `⏳ En cours · gain potentiel ${b.potentialWin.toFixed(2)} €`;
+      const ts = b.createdAt ? `<span class="mybet-ts"> · ${fmtDate(b.createdAt)}</span>` : "";
+      const canDelete = b.status === "open" && !result?.settled;
       html += `<div class="mybet ${stCls}">
-        <span class="mybet-sel">${b.label}</span>
-        <span class="mybet-info">${b.stake.toFixed(2)} € @ ${b.odds.toFixed(2)} — ${stTxt}</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div>
+            <span class="mybet-sel">${b.label}</span>
+            <span class="mybet-info">${b.stake.toFixed(2)} € @ ${b.odds.toFixed(2)} — ${stTxt}${ts}</span>
+          </div>
+          ${canDelete ? `<button class="mybet-del-btn" onclick="cancelBet('${matchId}','${betId}',${b.stake})" title="Annuler ce pari">✕</button>` : ""}
+        </div>
       </div>`;
     });
     html += `</div>`;
@@ -3663,6 +3673,38 @@ function _renderAdminDashboard(el) {
     <button class="admin-refresh" onclick="renderAdminDashboard()">🔄 Rafraîchir</button>`;
 }
 
+// ── Annuler un pari ouvert ─────────────────────────────────
+async function cancelBet(matchId, betId, stake) {
+  if (!currentUser) return;
+  if (!confirm(`Annuler ce pari et récupérer ${(+stake).toFixed(2)} € ?`)) return;
+  if (!db) { showToast("Mode démo : annulation non disponible."); return; }
+  try {
+    const { doc, deleteDoc, runTransaction } = window._firebaseModules;
+    await runTransaction(db, async (tx) => {
+      const betRef = doc(db, "matches", matchId, "bets", betId);
+      const betSnap = await tx.get(betRef);
+      if (!betSnap.exists()) throw new Error("not_found");
+      if (betSnap.data().status !== "open") throw new Error("not_open");
+      const uref = doc(db, "users", currentUser.id);
+      const usnap = await tx.get(uref);
+      const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+      tx.set(uref, { balance: +(cur + stake).toFixed(2) }, { merge: true });
+      tx.delete(betRef);
+    });
+    // Update local state
+    if (bets[matchId]) delete bets[matchId][betId];
+    if (balances[currentUser.id]) balances[currentUser.id].balance = +(balances[currentUser.id].balance + stake).toFixed(2);
+    showToast(`↩️ Pari annulé — ${(+stake).toFixed(2)} € remboursés.`);
+    renderMatchBetting(matchId);
+    renderLeaderboard();
+    updateBalanceDisplay();
+  } catch (err) {
+    if (err.message === "not_found") showToast("⛔ Pari introuvable.");
+    else if (err.message === "not_open") showToast("⛔ Ce pari ne peut plus être annulé.");
+    else { console.error(err); showToast("Erreur : " + err.message); }
+  }
+}
+
 // ── Penalize cheaters (retroactive) ───────────────────────
 // Goal timestamp for m13 (Pays-Bas vs Suède): 19h05 on June 20 2026
 const M13_GOAL_TS = new Date("2026-06-20T19:05:00").getTime();
@@ -3700,7 +3742,7 @@ async function penalizeMatchCheaters(matchId, goalTs) {
   try {
     await runTransaction(db, async (tx) => {
       for (const { betId, bet } of cheaterBets) {
-        const betRef = doc(db, "bets", matchId, "entries", betId);
+        const betRef = doc(db, "matches", matchId, "bets", betId);
         tx.set(betRef, { status: "cheated" }, { merge: true });
 
         const uid = bet.userId;
