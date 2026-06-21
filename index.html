@@ -2853,10 +2853,14 @@ async function autoSettleFromLive(matchId) {
   const as = parseInt(ls.away, 10);
   const total = hs + as;
 
-  // firstScorer ne peut pas être déduit du score final — on règle résultat + totals,
-  // et pour firstScorer : si 0-0 → none, sinon → équipe qui mène (heuristique simple)
+  // firstScorer cannot be deduced from final score — skip auto-settling firstScorer market.
+  // Only result + totals are settled automatically; firstScorer requires manual correction.
+  // Use "none" as placeholder so firstScorer bets stay incorrect until admin force-resettles.
   let firstScorer = "none";
-  if (total > 0) firstScorer = hs >= as ? "home" : "away";
+  if (hs > 0 && as === 0) firstScorer = "home";
+  else if (as > 0 && hs === 0) firstScorer = "away";
+  // For any other score (draw, e.g. 1-1, 2-2, etc.) firstScorer is unknown — leave "none"
+  // so firstScorer bets are NOT incorrectly awarded. Admin must manually correct via ✏️.
 
   const res = {
     settled: true, homeScore: hs, awayScore: as, firstScorer,
@@ -3463,7 +3467,38 @@ async function recalcAllBalances() {
   }
 }
 
-async function repriceOpenBets() {
+// ── Admin : audit complet d'un joueur ─────────────────────
+async function auditPlayer(uid, name) {
+  if (!db) { showToast("Mode démo non disponible."); return; }
+  const { collection, getDocs } = window._firebaseModules;
+
+  const allBets = [];
+  for (const m of MATCHES) {
+    if (m.ceremony) continue;
+    const snap = await getDocs(collection(db, "matches", m.id, "bets"));
+    snap.forEach((d) => {
+      const b = d.data();
+      if (b.userId === uid) allBets.push({ ...b, matchLabel: `${m.home.name} vs ${m.away.name}`, betId: d.id });
+    });
+  }
+  allBets.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  let running = 100;
+  let lines = `<strong>Audit de ${name}</strong> — départ : 100 €\n\n`;
+  for (const b of allBets) {
+    const ts = b.createdAt ? new Date(b.createdAt).toLocaleString("fr-FR") : "?";
+    running -= (b.stake || 0);
+    const st = b.status;
+    let effect = `−${(b.stake||0).toFixed(2)}€ (mise)`;
+    if (st === "won") { running += (b.potentialWin || 0); effect += ` +${(b.potentialWin||0).toFixed(2)}€ (gain)`; }
+    const icon = st === "won" ? "✅" : st === "lost" ? "❌" : st === "cheated" ? "🚨" : "⏳";
+    lines += `${icon} [${ts}] ${b.matchLabel}\n   ${b.label} · ${(b.stake||0).toFixed(2)}€ @ ${(b.odds||0).toFixed(2)} → ${effect}\n   Solde courant : ${running.toFixed(2)}€\n\n`;
+  }
+  lines += `Solde calculé : ${running.toFixed(2)}€\nSolde Firestore actuel : ${(balances[uid]?.balance ?? "?").toString()}€`;
+  alert(lines);
+}
+
+
   if (!db) { showToast("Mode démo : recalcul non synchronisé."); return; }
   // Compte les paris en cours
   let openCount = 0;
@@ -3546,6 +3581,7 @@ function _renderAdminDashboard(el) {
       <td class="admin-dim">${fmtDate(p.firstSeen)}</td>
       <td class="admin-dim">${fmtDate(p.lastSeen)}</td>
       <td style="display:flex;gap:4px">
+        <button class="admin-del" title="Audit complet des paris" onclick="auditPlayer('${p.id}','${(p.name||'').replace(/'/g,"\\'")}')">🔍</button>
         <button class="admin-del" title="Modifier le solde" onclick="promptBalanceAdjust('${p.id}','${(p.name||'').replace(/'/g,"\\'")}',${num(p.balance).toFixed(2)})">✏️</button>
         <button class="admin-del" title="Supprimer ce compte" onclick="deletePlayer('${p.id}')">🗑️</button>
       </td>
