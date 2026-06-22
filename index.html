@@ -2360,6 +2360,8 @@ function renderMatchBetting(matchId) {
   if (!result?.settled) {
     if (!isPresent) {
       html += `<div class="bet-locked">🎟️ Vote « Je viens » pour pouvoir parier sur ce match.</div>`;
+    } else if (myBalance() <= -30) {
+      html += `<div class="bet-locked">🚫 Paris bloqués — solde inférieur à −30 €.<br><small>Ton solde actuel : <strong>${myBalance().toFixed(2)} €</strong>. Tu ne peux plus parier tant que tu n'es pas au-dessus de −30 €.</small></div>`;
     } else {
       const draft = betDraft[matchId];
       const ls = liveScores[matchId];
@@ -2528,6 +2530,7 @@ async function placeBet(matchId) {
   if (_isLive && stake > LIVE_MAX_STAKE) {
     showToast(`🔒 Mise max en direct : ${LIVE_MAX_STAKE} €`); return;
   }
+  if (myBalance() <= -30) { showToast("🚫 Paris bloqués — solde en dessous de −30 €."); return; }
   if (stake > myBalance()) { showToast("💸 Solde insuffisant !"); return; }
   const myVote = (votes[matchId] || {})[currentUser.id];
   if (myVote?.coming !== true) { showToast("🎟️ Vote « Je viens » d'abord."); return; }
