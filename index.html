@@ -2878,6 +2878,18 @@ function renderLiveScore(matchId) {
   if (!el) return;
   const ls = liveScores[matchId];
   const card = document.getElementById(`card-${matchId}`);
+  const settled = results[matchId];
+
+  // If the match is already settled in Firestore, always show the recorded result
+  // and never show "EN DIRECT" — the live API can lag and stay stuck on a live status.
+  if (settled?.settled) {
+    el.className = "live-score done";
+    el.innerHTML = `🏁 Score final ${settled.homeScore} - ${settled.awayScore}`;
+    if (card) { card.classList.remove("live-now"); }
+    applyPastHiding();
+    return;
+  }
+
   if (!ls || (ls.home == null && ls.away == null && !LIVE_STATUSES.includes(ls.status))) {
     el.innerHTML = ""; el.className = "live-score";
     if (card) card.classList.remove("live-now");
