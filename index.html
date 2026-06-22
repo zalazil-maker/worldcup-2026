@@ -1999,7 +1999,11 @@ function renderMatches() {
   const container = document.getElementById("matches-container");
   container.innerHTML = "";
   MATCHES.forEach((m) => {
-    container.appendChild(buildMatchCard(m));
+    try {
+      container.appendChild(buildMatchCard(m));
+    } catch (err) {
+      console.error("buildMatchCard crashed for", m.id, err);
+    }
   });
   applyPastHiding();
 
@@ -3931,6 +3935,7 @@ async function penalizeMatchCheaters(matchId, goalTs) {
 
 // ── Bootstrap ──────────────────────────────────────────────
 (async () => {
+  try {
   await registerSW();
   setupInstallBanner();
   await initFirebase();
@@ -3961,6 +3966,11 @@ async function penalizeMatchCheaters(matchId, goalTs) {
         await new Promise((r) => setTimeout(r, 500));
       }
     })();
+  }
+  } catch (err) {
+    console.error("Bootstrap crash:", err);
+    document.getElementById("matches-container").innerHTML =
+      `<div style="color:#f87171;padding:20px;text-align:center">⚠️ Erreur au démarrage : ${err.message}<br><small>Ouvre la console pour plus de détails.</small></div>`;
   }
 })();
 </script>
