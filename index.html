@@ -1199,6 +1199,42 @@ const MATCHES = [
     home: { name: "Belgique", flag: "be" },
     away: { name: "Iran", flag: "ir" },
   },
+  {
+    id: "m18",
+    date: "2026-06-22", time: "19:00",
+    label: "Lundi 22 Juin 2026",
+    home: { name: "Argentine", flag: "ar" },
+    away: { name: "Autriche", flag: "at" },
+  },
+  {
+    id: "m19",
+    date: "2026-06-22", time: "23:00",
+    label: "Lundi 22 Juin 2026",
+    home: { name: "France", flag: "fr" },
+    away: { name: "Irak", flag: "iq" },
+  },
+  {
+    id: "m20",
+    date: "2026-06-23", time: "22:00",
+    label: "Mardi 23 Juin 2026",
+    home: { name: "Angleterre", flag: "gb-eng" },
+    away: { name: "Ghana", flag: "gh" },
+  },
+  {
+    id: "m21",
+    date: "2026-06-25", time: "22:00",
+    label: "Jeudi 25 Juin 2026",
+    home: { name: "Équateur", flag: "ec" },
+    away: { name: "Allemagne", flag: "de" },
+  },
+  {
+    id: "m22",
+    date: "2026-06-28", time: "21:00",
+    label: "Dimanche 28 Juin 2026",
+    ceremony: true,
+    home: { name: "16ème de Finale", flag: "" },
+    away: { name: "", flag: "" },
+  },
 ];
 
 const BRINGING_OPTIONS = [
@@ -1225,6 +1261,7 @@ const TEAM_RATINGS = {
   "Afrique du Sud": 1640, "RD Congo": 1630, "Côte d'Ivoire": 1625,
   "Arabie Saoudite": 1610, "Iran": 1605, "Qatar": 1600,
   "Équateur": 1590, "Curaçao": 1450, "Haïti": 1500,
+  "Argentine": 2040, "Autriche": 1750, "Irak": 1530, "Ghana": 1620,
 };
 const DEFAULT_RATING = 1700;
 
@@ -1241,6 +1278,7 @@ const NAME_MAP = {            // nos noms FR → noms de l'API (EN)
   "Allemagne": "Germany", "Côte d'Ivoire": "Ivory Coast", "Équateur": "Ecuador",
   "Curaçao": "Curacao", "Espagne": "Spain", "Arabie Saoudite": "Saudi Arabia",
   "Belgique": "Belgium", "Iran": "Iran", "Suède": "Sweden",
+  "Argentine": "Argentina", "Autriche": "Austria", "Irak": "Iraq", "Ghana": "Ghana",
 };
 
 const MARGIN = 1.06;       // marge "bookmaker" (~6%) sur les cotes
@@ -2000,10 +2038,11 @@ function buildMatchCard(m) {
   // Teams or ceremony
   let teamsHtml;
   if (m.ceremony) {
+    const ceremonyLabel = m.home.name || "Cérémonie d'ouverture";
     teamsHtml = `
       <div class="match-ceremony">
         <span class="ceremony-icon">🏆✨</span>
-        <span class="ceremony-text">Cérémonie d'ouverture</span>
+        <span class="ceremony-text">${ceremonyLabel}</span>
         <span class="ceremony-icon">🎆</span>
       </div>`;
   } else {
@@ -3064,11 +3103,12 @@ async function scheduleNotifications() {
 
     if (delay <= 0) return; // already past
 
+    const ceremonyName = m.ceremony ? (m.home?.name || "Cérémonie") : null;
     const title = m.ceremony
-      ? "🏆 Cérémonie d'ouverture ce soir !"
+      ? `🏆 ${ceremonyName} ce soir !`
       : `⚽ ${m.home?.name} vs ${m.away?.name} demain !`;
     const body = m.ceremony
-      ? `La fête commence demain à ${m.time} — 31 Allée Pichon des Prés 🎉`
+      ? `Rendez-vous demain à ${m.time} — 31 Allée Pichon des Prés 🎉`
       : `Match demain à ${m.time} — 31 Allée Pichon des Prés. Tu viens ? N'oublie pas de voter !`;
 
     if (sw) {
@@ -3498,7 +3538,7 @@ async function auditPlayer(uid, name) {
   alert(lines);
 }
 
-
+async function repriceOpenBets() {
   if (!db) { showToast("Mode démo : recalcul non synchronisé."); return; }
   // Compte les paris en cours
   let openCount = 0;
