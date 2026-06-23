@@ -2748,24 +2748,28 @@ async function settleMatch(matchId) {
     try {
       const { doc, setDoc, runTransaction } = window._firebaseModules;
       for (const [betId, bet] of Object.entries(matchBets)) {
-        if (bet.status !== "open") continue;
-        const outcome = betWins(bet, res);
-        await runTransaction(db, async (tx) => {
-          const betRef = doc(db, "matches", matchId, "bets", betId);
-          const betSnap = await tx.get(betRef);
-          if (!betSnap.exists() || betSnap.data().status !== "open") return;
-          if (outcome === true) {
+        if (bet.status !== "open" && bet.status !== undefined && bet.status !== null) continue;
+        if (bet.status === undefined || bet.status === null || bet.status === "open") {
+          const outcome = betWins(bet, res);
+          await runTransaction(db, async (tx) => {
+            const betRef = doc(db, "matches", matchId, "bets", betId);
+            const betSnap = await tx.get(betRef);
+            if (!betSnap.exists()) return;
             const uref = doc(db, "users", bet.userId);
             const usnap = await tx.get(uref);
-            const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-            tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
-          }
-          tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
-        });
+            if (outcome === true) {
+              const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+              tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
+            }
+            tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
+          });
+        }
       }
       await setDoc(doc(db, "results", matchId), res);
+      results[matchId] = res; // update local state immediately
     } catch (err) {
-      console.error(err); showToast("Erreur lors du règlement.");
+      console.error("settleMatch error:", err);
+      showToast("⛔ Erreur règlement : " + (err.message || String(err)));
       return;
     }
   } else {
