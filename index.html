@@ -2367,14 +2367,15 @@ function renderMatchBetting(matchId) {
         : b.status === "cheated" ? "🚨 Pari invalide — triche détectée. Mise perdue."
         : `⏳ En cours · gain potentiel ${b.potentialWin.toFixed(2)} €`;
       const ts = b.createdAt ? `<span class="mybet-ts"> · ${fmtDate(b.createdAt)}</span>` : "";
-      const canDelete = b.status === "open" && !result?.settled;
+      const canDelete = (b.status === "open" || !b.status) && !result?.settled;
+      const safeWin = +(b.potentialWin || 0);
       html += `<div class="mybet ${stCls}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
           <div>
             <span class="mybet-sel">${b.label}</span>
             <span class="mybet-info">${b.stake.toFixed(2)} € @ ${b.odds.toFixed(2)} — ${stTxt}${ts}</span>
           </div>
-          ${canDelete ? `<button class="mybet-del-btn" onclick="cancelBet('${matchId}','${betId}',${b.stake},${b.potentialWin})" title="Annuler ce pari">✕</button>` : ""}
+          ${canDelete ? `<button class="mybet-del-btn" onclick="cancelBet('${matchId}','${betId}',${b.stake},${safeWin})" title="Annuler ce pari">✕</button>` : ""}
         </div>
       </div>`;
     });
@@ -3944,12 +3945,14 @@ function cancelBet(matchId, betId, stake, potentialWin) {
   if (!db) { showToast("Mode démo : annulation non disponible."); return; }
 
   const modal = document.getElementById("cancel-bet-modal");
+  const safeStake = +(stake) || 0;
+  const safeWin = +(potentialWin) || 0;
   document.getElementById("cancel-bet-info").textContent =
-    `Mise : ${(+stake).toFixed(2)} € · Gain potentiel : ${(+potentialWin).toFixed(2)} €`;
+    `Mise : ${safeStake.toFixed(2)} € · Gain potentiel : ${safeWin.toFixed(2)} €`;
   const inp = document.getElementById("cancel-bet-refund");
-  inp.value = (+stake).toFixed(2);
-  inp.min = 0;
-  document.getElementById("cancel-bet-full-btn").onclick = () => { inp.value = (+stake).toFixed(2); };
+  inp.value = safeStake.toFixed(2);
+  inp.removeAttribute("min");
+  document.getElementById("cancel-bet-full-btn").onclick = () => { inp.value = safeStake.toFixed(2); };
   document.getElementById("cancel-bet-zero-btn").onclick = () => { inp.value = "0"; };
   document.getElementById("cancel-bet-confirm-btn").onclick = async () => {
     const refund = parseFloat(inp.value);
