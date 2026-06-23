@@ -3954,7 +3954,9 @@ function cancelBet(matchId, betId, stake, potentialWin) {
   document.getElementById("cancel-bet-confirm-btn").onclick = async () => {
     const refund = parseFloat(inp.value);
     if (isNaN(refund) || refund < 0) { showToast("Montant invalide."); return; }
+    if (!betId) { showToast("⛔ ID de pari manquant."); return; }
     closeCancelModal();
+    showToast("⏳ Annulation en cours…");
     try {
       const { doc, runTransaction } = window._firebaseModules;
       await runTransaction(db, async (tx) => {
@@ -3981,15 +3983,15 @@ function cancelBet(matchId, betId, stake, potentialWin) {
       renderLeaderboard();
       updateBalanceDisplay();
     } catch (err) {
-      if (err.message === "not_found") showToast("⛔ Pari introuvable.");
-      else if (err.message === "not_open") showToast("⛔ Ce pari ne peut plus être annulé.");
-      else { console.error(err); showToast("Erreur : " + err.message); }
+      if (err.message === "not_found") showToast("⛔ Pari introuvable en base.");
+      else if (err.message === "not_open") showToast("⛔ Ce pari est déjà réglé.");
+      else { console.error("cancelBet error:", err); showToast("⛔ Erreur : " + (err.message || String(err))); }
     }
   };
   modal.classList.remove("hidden");
 }
 
-/// ── Admin : annuler un pari avec choix du remboursement ───
+// ── Admin : annuler un pari avec choix du remboursement ───
 function adminCancelBet(matchId, betId, stake, potentialWin, playerName) {
   if (!betId) { showToast("ID de pari introuvable."); return; }
   if (!db) { showToast("Mode démo non disponible."); return; }
