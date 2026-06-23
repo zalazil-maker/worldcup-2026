@@ -2726,11 +2726,12 @@ function betWins(bet, res) {
 }
 
 async function settleMatch(matchId) {
+  showToast("⏳ Règlement en cours…");
   if (results[matchId]?.settled) { showToast("Déjà réglé."); return; }
   const hs = parseInt(document.getElementById(`hs-${matchId}`)?.value, 10);
   const as = parseInt(document.getElementById(`as-${matchId}`)?.value, 10);
   const fs = document.getElementById(`fs-${matchId}`)?.value;
-  if (isNaN(hs) || isNaN(as)) { showToast("Entre un score valide."); return; }
+  if (isNaN(hs) || isNaN(as)) { showToast("⚠️ Entre un score valide."); return; }
 
   // Cohérence : si aucun but, score doit être 0-0
   if (fs === "none" && (hs > 0 || as > 0)) {
@@ -3939,21 +3940,19 @@ async function doCancelBet(matchId, betId, refund) {
   closeCancelModal();
   showToast("⏳ Annulation en cours…");
   try {
-    const { doc, runTransaction } = window._firebaseModules;
-    await runTransaction(db, async (tx) => {
-      const betRef = doc(db, "matches", matchId, "bets", betId);
+    const { doc, getDoc, deleteDoc, setDoc } = window._firebaseModules;
+    const betRef = doc(db, "matches", matchId, "bets", betId);
+    const betSnap = await getDoc(betRef);
+    if (!betSnap.exists()) { showToast("⛔ Pari introuvable."); return; }
+    const s = betSnap.data().status;
+    if (s === "won" || s === "lost" || s === "cheated") { showToast("⛔ Ce pari est déjà réglé."); return; }
+    await deleteDoc(betRef);
+    if (refund > 0) {
       const uref = doc(db, "users", currentUser.id);
-      const betSnap = await tx.get(betRef);
-      const usnap = await tx.get(uref);
-      if (!betSnap.exists()) throw new Error("not_found");
-      const s = betSnap.data().status;
-      if (s === "won" || s === "lost" || s === "cheated") throw new Error("not_open");
-      tx.delete(betRef);
-      if (refund > 0) {
-        const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-        tx.set(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
-      }
-    });
+      const usnap = await getDoc(uref);
+      const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+      await setDoc(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
+    }
     if (bets[matchId]) delete bets[matchId][betId];
     if (refund > 0 && balances[currentUser.id]) {
       balances[currentUser.id].balance = +(balances[currentUser.id].balance + refund).toFixed(2);
@@ -3963,9 +3962,8 @@ async function doCancelBet(matchId, betId, refund) {
     renderLeaderboard();
     updateBalanceDisplay();
   } catch (err) {
-    if (err.message === "not_found") showToast("⛔ Pari introuvable.");
-    else if (err.message === "not_open") showToast("⛔ Ce pari est déjà réglé.");
-    else { console.error("cancelBet:", err); showToast("⛔ Erreur : " + (err.message || String(err))); }
+    console.error("doCancelBet:", err);
+    showToast("⛔ Erreur : " + (err.message || String(err)));
   }
 }
 
