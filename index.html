@@ -3991,7 +3991,7 @@ function cancelBet(matchId, betId, stake, potentialWin) {
   modal.classList.remove("hidden");
 }
 
-// ── Admin : annuler un pari avec choix du remboursement ───
+/// ── Admin : annuler un pari avec choix du remboursement ───
 function adminCancelBet(matchId, betId, stake, potentialWin, playerName) {
   if (!betId) { showToast("ID de pari introuvable."); return; }
   if (!db) { showToast("Mode démo non disponible."); return; }
