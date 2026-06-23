@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v2c01692-cancel-fix -->
+<!-- v67d0aaa -->
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
@@ -3942,14 +3942,11 @@ async function doCancelBet(matchId, betId, refund) {
     await runTransaction(db, async (tx) => {
       const betRef = doc(db, "matches", matchId, "bets", betId);
       const uref = doc(db, "users", currentUser.id);
-      // all reads first
       const betSnap = await tx.get(betRef);
-      const usnap = refund > 0 ? await tx.get(uref) : null;
-      // validate
+      const usnap = await tx.get(uref);
       if (!betSnap.exists()) throw new Error("not_found");
       const s = betSnap.data().status;
       if (s === "won" || s === "lost" || s === "cheated") throw new Error("not_open");
-      // writes
       tx.delete(betRef);
       if (refund > 0) {
         const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
@@ -3996,15 +3993,12 @@ function adminCancelBet(matchId, betId, stake, potentialWin, playerName) {
       let uid;
       await runTransaction(db, async (tx) => {
         const betRef = doc(db, "matches", matchId, "bets", betId);
-        // read bet first to get uid
         const betSnap = await tx.get(betRef);
         if (!betSnap.exists()) throw new Error("not_found");
         uid = betSnap.data().userId;
-        // read user before any writes
+        tx.delete(betRef);
         const uref = doc(db, "users", uid);
         const usnap = await tx.get(uref);
-        // writes
-        tx.delete(betRef);
         const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
         tx.set(uref, { balance: +(cur + safeStake).toFixed(2) }, { merge: true });
       });
