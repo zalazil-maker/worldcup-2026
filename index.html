@@ -3961,7 +3961,8 @@ function cancelBet(matchId, betId, stake, potentialWin) {
         const betRef = doc(db, "matches", matchId, "bets", betId);
         const betSnap = await tx.get(betRef);
         if (!betSnap.exists()) throw new Error("not_found");
-        if (betSnap.data().status !== "open") throw new Error("not_open");
+        const s = betSnap.data().status;
+        if (s === "won" || s === "lost" || s === "cheated") throw new Error("not_open");
         tx.delete(betRef);
         if (refund > 0) {
           const uref = doc(db, "users", currentUser.id);
