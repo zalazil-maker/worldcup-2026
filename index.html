@@ -3941,14 +3941,17 @@ async function doCancelBet(matchId, betId, refund) {
     const { doc, runTransaction } = window._firebaseModules;
     await runTransaction(db, async (tx) => {
       const betRef = doc(db, "matches", matchId, "bets", betId);
+      const uref = doc(db, "users", currentUser.id);
+      // all reads first
       const betSnap = await tx.get(betRef);
+      const usnap = refund > 0 ? await tx.get(uref) : null;
+      // validate
       if (!betSnap.exists()) throw new Error("not_found");
       const s = betSnap.data().status;
       if (s === "won" || s === "lost" || s === "cheated") throw new Error("not_open");
+      // writes
       tx.delete(betRef);
       if (refund > 0) {
-        const uref = doc(db, "users", currentUser.id);
-        const usnap = await tx.get(uref);
         const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
         tx.set(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
       }
@@ -3993,12 +3996,15 @@ function adminCancelBet(matchId, betId, stake, potentialWin, playerName) {
       let uid;
       await runTransaction(db, async (tx) => {
         const betRef = doc(db, "matches", matchId, "bets", betId);
+        // read bet first to get uid
         const betSnap = await tx.get(betRef);
         if (!betSnap.exists()) throw new Error("not_found");
         uid = betSnap.data().userId;
-        tx.delete(betRef);
+        // read user before any writes
         const uref = doc(db, "users", uid);
         const usnap = await tx.get(uref);
+        // writes
+        tx.delete(betRef);
         const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
         tx.set(uref, { balance: +(cur + safeStake).toFixed(2) }, { merge: true });
       });
