@@ -1123,14 +1123,9 @@ footer strong { color: var(--gold-light); }
   <div class="admin-box" style="max-width:340px">
     <button class="admin-close" onclick="closeCancelModal()">✕</button>
     <h3 style="margin:0 0 12px">↩️ Annuler ce pari</h3>
-    <div id="cancel-bet-info" style="margin-bottom:12px;font-size:0.95em;color:#94a3b8"></div>
-    <label style="display:block;margin-bottom:6px;font-size:0.9em">Montant remboursé (€)</label>
-    <input id="cancel-bet-refund" type="number" step="0.01" style="width:100%;padding:8px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:1em" />
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <button id="cancel-bet-full-btn" class="settle-confirm" style="flex:1;background:#7c3aed">Remboursement complet</button>
-      <button id="cancel-bet-zero-btn" class="settle-confirm" style="flex:1;background:#475569">Sans remboursement</button>
-    </div>
-    <button id="cancel-bet-confirm-btn" class="settle-confirm" style="width:100%;margin-top:8px;background:#dc2626">Confirmer l'annulation</button>
+    <div id="cancel-bet-info" style="margin-bottom:16px;font-size:0.95em;color:#94a3b8"></div>
+    <button id="cancel-bet-full-btn" class="settle-confirm" style="width:100%;margin-bottom:8px;background:#7c3aed">↩️ Rembourser la mise</button>
+    <button id="cancel-bet-zero-btn" class="settle-confirm" style="width:100%;background:#475569">🗑️ Annuler sans remboursement</button>
   </div>
 </div>
 
@@ -2368,14 +2363,13 @@ function renderMatchBetting(matchId) {
         : `⏳ En cours · gain potentiel ${b.potentialWin.toFixed(2)} €`;
       const ts = b.createdAt ? `<span class="mybet-ts"> · ${fmtDate(b.createdAt)}</span>` : "";
       const canDelete = (b.status === "open" || !b.status) && !result?.settled;
-      const safeWin = +(b.potentialWin || 0);
       html += `<div class="mybet ${stCls}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
           <div>
             <span class="mybet-sel">${b.label}</span>
             <span class="mybet-info">${b.stake.toFixed(2)} € @ ${b.odds.toFixed(2)} — ${stTxt}${ts}</span>
           </div>
-          ${canDelete ? `<button class="mybet-del-btn" onclick="cancelBet('${matchId}','${betId}',${b.stake},${safeWin})" title="Annuler ce pari">✕</button>` : ""}
+          ${canDelete ? `<button class="mybet-del-btn" onclick="cancelBet('${matchId}','${betId}',${b.stake})" title="Annuler ce pari">✕</button>` : ""}
         </div>
       </div>`;
     });
@@ -3940,78 +3934,60 @@ function closeCancelModal() {
   document.getElementById("cancel-bet-modal").classList.add("hidden");
 }
 
-function cancelBet(matchId, betId, stake, potentialWin) {
-  if (!currentUser) return;
-  if (!db) { showToast("Mode démo : annulation non disponible."); return; }
-
-  const modal = document.getElementById("cancel-bet-modal");
-  const safeStake = +(stake) || 0;
-  const safeWin = +(potentialWin) || 0;
-  document.getElementById("cancel-bet-info").textContent =
-    `Mise : ${safeStake.toFixed(2)} € · Gain potentiel : ${safeWin.toFixed(2)} €`;
-  const inp = document.getElementById("cancel-bet-refund");
-  inp.value = safeStake.toFixed(2);
-  inp.removeAttribute("min");
-  document.getElementById("cancel-bet-full-btn").onclick = () => { inp.value = safeStake.toFixed(2); };
-  document.getElementById("cancel-bet-zero-btn").onclick = () => { inp.value = "0"; };
-  document.getElementById("cancel-bet-confirm-btn").onclick = async () => {
-    const refund = parseFloat(inp.value);
-    if (isNaN(refund) || refund < 0) { showToast("Montant invalide."); return; }
-    if (!betId) { showToast("⛔ ID de pari manquant."); return; }
-    closeCancelModal();
-    showToast("⏳ Annulation en cours…");
-    try {
-      const { doc, runTransaction } = window._firebaseModules;
-      await runTransaction(db, async (tx) => {
-        const betRef = doc(db, "matches", matchId, "bets", betId);
-        const betSnap = await tx.get(betRef);
-        if (!betSnap.exists()) throw new Error("not_found");
-        const s = betSnap.data().status;
-        if (s === "won" || s === "lost" || s === "cheated") throw new Error("not_open");
-        tx.delete(betRef);
-        if (refund > 0) {
-          const uref = doc(db, "users", currentUser.id);
-          const usnap = await tx.get(uref);
-          const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-          tx.set(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
-        }
-      });
-      if (bets[matchId]) delete bets[matchId][betId];
-      if (refund > 0 && balances[currentUser.id]) {
-        balances[currentUser.id].balance = +(balances[currentUser.id].balance + refund).toFixed(2);
+async function doCancelBet(matchId, betId, refund) {
+  closeCancelModal();
+  showToast("⏳ Annulation en cours…");
+  try {
+    const { doc, runTransaction } = window._firebaseModules;
+    await runTransaction(db, async (tx) => {
+      const betRef = doc(db, "matches", matchId, "bets", betId);
+      const betSnap = await tx.get(betRef);
+      if (!betSnap.exists()) throw new Error("not_found");
+      const s = betSnap.data().status;
+      if (s === "won" || s === "lost" || s === "cheated") throw new Error("not_open");
+      tx.delete(betRef);
+      if (refund > 0) {
+        const uref = doc(db, "users", currentUser.id);
+        const usnap = await tx.get(uref);
+        const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+        tx.set(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
       }
-      const msg = refund > 0 ? `${refund.toFixed(2)} € remboursés.` : "aucun remboursement.";
-      showToast(`↩️ Pari annulé — ${msg}`);
-      renderMatchBetting(matchId);
-      renderLeaderboard();
-      updateBalanceDisplay();
-    } catch (err) {
-      if (err.message === "not_found") showToast("⛔ Pari introuvable en base.");
-      else if (err.message === "not_open") showToast("⛔ Ce pari est déjà réglé.");
-      else { console.error("cancelBet error:", err); showToast("⛔ Erreur : " + (err.message || String(err))); }
+    });
+    if (bets[matchId]) delete bets[matchId][betId];
+    if (refund > 0 && balances[currentUser.id]) {
+      balances[currentUser.id].balance = +(balances[currentUser.id].balance + refund).toFixed(2);
     }
-  };
-  modal.classList.remove("hidden");
+    showToast(refund > 0 ? `↩️ Pari annulé — ${refund.toFixed(2)} € remboursés.` : `↩️ Pari annulé.`);
+    renderMatchBetting(matchId);
+    renderLeaderboard();
+    updateBalanceDisplay();
+  } catch (err) {
+    if (err.message === "not_found") showToast("⛔ Pari introuvable.");
+    else if (err.message === "not_open") showToast("⛔ Ce pari est déjà réglé.");
+    else { console.error("cancelBet:", err); showToast("⛔ Erreur : " + (err.message || String(err))); }
+  }
 }
 
-/// ── Admin : annuler un pari avec choix du remboursement ───
+function cancelBet(matchId, betId, stake) {
+  if (!currentUser || !db) return;
+  const safeStake = +(stake) || 0;
+  document.getElementById("cancel-bet-info").textContent =
+    `Mise : ${safeStake.toFixed(2)} €`;
+  document.getElementById("cancel-bet-full-btn").onclick = () => doCancelBet(matchId, betId, safeStake);
+  document.getElementById("cancel-bet-zero-btn").onclick = () => doCancelBet(matchId, betId, 0);
+  document.getElementById("cancel-bet-modal").classList.remove("hidden");
+}
+
+// ── Admin : annuler un pari ───────────────────────────────
 function adminCancelBet(matchId, betId, stake, potentialWin, playerName) {
   if (!betId) { showToast("ID de pari introuvable."); return; }
   if (!db) { showToast("Mode démo non disponible."); return; }
-
-  const modal = document.getElementById("cancel-bet-modal");
+  const safeStake = +(stake) || 0;
   document.getElementById("cancel-bet-info").innerHTML =
-    `<strong>${playerName}</strong> · Mise : ${(+stake).toFixed(2)} € · Gain potentiel : ${(+potentialWin).toFixed(2)} €<br>` +
-    `<span style="font-size:0.85em;color:#64748b">Valeur négative = déduction du solde (admin uniquement)</span>`;
-  const inp = document.getElementById("cancel-bet-refund");
-  inp.value = (+stake).toFixed(2);
-  inp.min = "";
-  document.getElementById("cancel-bet-full-btn").onclick = () => { inp.value = (+stake).toFixed(2); };
-  document.getElementById("cancel-bet-zero-btn").onclick = () => { inp.value = "0"; };
-  document.getElementById("cancel-bet-confirm-btn").onclick = async () => {
-    const refund = parseFloat(inp.value);
-    if (isNaN(refund)) { showToast("Montant invalide."); return; }
+    `<strong>${playerName}</strong> · Mise : ${safeStake.toFixed(2)} €`;
+  document.getElementById("cancel-bet-full-btn").onclick = async () => {
     closeCancelModal();
+    showToast("⏳ Annulation en cours…");
     try {
       const { doc, runTransaction } = window._firebaseModules;
       let uid;
@@ -4021,28 +3997,40 @@ function adminCancelBet(matchId, betId, stake, potentialWin, playerName) {
         if (!betSnap.exists()) throw new Error("not_found");
         uid = betSnap.data().userId;
         tx.delete(betRef);
-        if (refund !== 0) {
-          const uref = doc(db, "users", uid);
-          const usnap = await tx.get(uref);
-          const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-          tx.set(uref, { balance: +(cur + refund).toFixed(2) }, { merge: true });
-        }
+        const uref = doc(db, "users", uid);
+        const usnap = await tx.get(uref);
+        const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+        tx.set(uref, { balance: +(cur + safeStake).toFixed(2) }, { merge: true });
       });
       if (bets[matchId]) delete bets[matchId][betId];
-      if (uid && balances[uid] && refund !== 0) {
-        balances[uid].balance = +(balances[uid].balance + refund).toFixed(2);
-      }
-      const msg = refund > 0 ? `remboursement de ${refund.toFixed(2)} €`
-        : refund < 0 ? `déduction de ${Math.abs(refund).toFixed(2)} €`
-        : "aucun remboursement";
-      showToast(`🗑️ Pari de ${playerName} supprimé — ${msg}.`);
+      if (uid && balances[uid]) balances[uid].balance = +(balances[uid].balance + safeStake).toFixed(2);
+      showToast(`🗑️ Pari de ${playerName} supprimé — ${safeStake.toFixed(2)} € remboursés.`);
       renderAdminDashboard();
     } catch (err) {
-      if (err.message === "not_found") showToast("Pari introuvable (déjà supprimé ?).");
+      if (err.message === "not_found") showToast("Pari introuvable.");
       else { console.error(err); showToast("Erreur : " + err.message); }
     }
   };
-  modal.classList.remove("hidden");
+  document.getElementById("cancel-bet-zero-btn").onclick = async () => {
+    closeCancelModal();
+    showToast("⏳ Annulation en cours…");
+    try {
+      const { doc, runTransaction } = window._firebaseModules;
+      await runTransaction(db, async (tx) => {
+        const betRef = doc(db, "matches", matchId, "bets", betId);
+        const betSnap = await tx.get(betRef);
+        if (!betSnap.exists()) throw new Error("not_found");
+        tx.delete(betRef);
+      });
+      if (bets[matchId]) delete bets[matchId][betId];
+      showToast(`🗑️ Pari de ${playerName} supprimé — aucun remboursement.`);
+      renderAdminDashboard();
+    } catch (err) {
+      if (err.message === "not_found") showToast("Pari introuvable.");
+      else { console.error(err); showToast("Erreur : " + err.message); }
+    }
+  };
+  document.getElementById("cancel-bet-modal").classList.remove("hidden");
 }
 
 // ── Penalize cheaters (retroactive) ───────────────────────
