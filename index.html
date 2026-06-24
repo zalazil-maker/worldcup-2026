@@ -2600,6 +2600,8 @@ async function placeBet(matchId) {
         tx.set(uref, { name: currentUser.name, balance: +(cur - stake).toFixed(2) }, { merge: true });
       });
       await setDoc(doc(db, "matches", matchId, "bets", betId), bet);
+      if (!bets[matchId]) bets[matchId] = {};
+      bets[matchId][betId] = bet;
     } catch (err) {
       showToast(err.message === "insufficient" ? "💸 Solde insuffisant !" : "Erreur, réessaie.");
       return;
@@ -2743,38 +2745,45 @@ async function settleMatch(matchId) {
   const res = { settled: true, homeScore: hs, awayScore: as, firstScorer: fs,
     settledBy: currentUser?.name || "?", settledAt: Date.now() };
   const matchBets = bets[matchId] || {};
+  const isOpenBet = (b) => !b.status || b.status === "open";
 
   if (db) {
     try {
       const { doc, setDoc, runTransaction } = window._firebaseModules;
       for (const [betId, bet] of Object.entries(matchBets)) {
-        if (bet.status !== "open" && bet.status !== undefined && bet.status !== null) continue;
-        if (bet.status === undefined || bet.status === null || bet.status === "open") {
-          const outcome = betWins(bet, res);
-          await runTransaction(db, async (tx) => {
-            const betRef = doc(db, "matches", matchId, "bets", betId);
-            const betSnap = await tx.get(betRef);
-            if (!betSnap.exists()) return;
-            const uref = doc(db, "users", bet.userId);
-            const usnap = await tx.get(uref);
-            if (outcome === true) {
-              const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
-              tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
-            }
-            tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
-          });
-        }
+        if (!isOpenBet(bet)) continue;
+        const outcome = betWins(bet, res);
+        await runTransaction(db, async (tx) => {
+          const betRef = doc(db, "matches", matchId, "bets", betId);
+          const uref = doc(db, "users", bet.userId);
+          const betSnap = await tx.get(betRef);
+          const usnap = await tx.get(uref);
+          if (!betSnap.exists()) return;
+          const newStatus = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+          if (outcome === true) {
+            const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
+            tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
+          }
+          tx.set(betRef, { status: newStatus }, { merge: true });
+        });
       }
       await setDoc(doc(db, "results", matchId), res);
-      results[matchId] = res; // update local state immediately
+      results[matchId] = res;
+      // sync local bet statuses so UI is correct without waiting for onSnapshot
+      for (const [betId, bet] of Object.entries(matchBets)) {
+        if (!isOpenBet(bet)) continue;
+        const newStatus = betWins(bet, res);
+        if (bets[matchId]?.[betId]) bets[matchId][betId].status = newStatus === true ? "won" : newStatus === "cheated" ? "cheated" : "lost";
+      }
+      updateBalanceDisplay();
     } catch (err) {
       console.error("settleMatch error:", err);
       showToast("⛔ Erreur règlement : " + (err.message || String(err)));
       return;
     }
   } else {
-    Object.entries(matchBets).forEach(([betId, bet]) => {
-      if (bet.status !== "open") return;
+    Object.entries(matchBets).forEach(([, bet]) => {
+      if (!isOpenBet(bet)) return;
       const outcome = betWins(bet, res);
       bet.status = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
       if (outcome === true) {
@@ -2825,7 +2834,14 @@ async function forceResettleMatch(matchId) {
         });
       }
       await setDoc(doc(db, "results", matchId), newRes);
-    } catch (err) { console.error(err); showToast("Erreur lors de la correction."); return; }
+      results[matchId] = newRes;
+      for (const [betId, bet] of Object.entries(matchBets)) {
+        const outcome = betWins(bet, newRes);
+        const newStatus = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
+        if (bets[matchId]?.[betId]) bets[matchId][betId].status = newStatus;
+      }
+      updateBalanceDisplay();
+    } catch (err) { console.error(err); showToast("⛔ Erreur lors de la correction."); return; }
   } else {
     Object.entries(matchBets).forEach(([, bet]) => {
       const shouldWin = betWins(bet, newRes);
@@ -2994,34 +3010,43 @@ async function autoSettleFromLive(matchId) {
 
   const matchBets = bets[matchId] || {};
 
+  const isOpenBetAuto = (b) => !b.status || b.status === "open";
+
   if (db) {
     try {
       const { doc, setDoc, runTransaction } = window._firebaseModules;
-      // Règle chaque pari dans une transaction atomique pour éviter le double-crédit
       for (const [betId, bet] of Object.entries(matchBets)) {
-        if (bet.status !== "open") continue;
+        if (!isOpenBetAuto(bet)) continue;
         const outcome = betWins(bet, res);
         await runTransaction(db, async (tx) => {
           const betRef = doc(db, "matches", matchId, "bets", betId);
+          const uref = doc(db, "users", bet.userId);
           const betSnap = await tx.get(betRef);
-          if (!betSnap.exists() || betSnap.data().status !== "open") return; // déjà réglé
+          const usnap = await tx.get(uref);
+          if (!betSnap.exists()) return;
+          const newStatus = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
           if (outcome === true) {
-            const uref = doc(db, "users", bet.userId);
-            const usnap = await tx.get(uref);
             const cur = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
             tx.set(uref, { balance: +(cur + bet.potentialWin).toFixed(2) }, { merge: true });
           }
-          tx.set(betRef, { status: outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost" }, { merge: true });
+          tx.set(betRef, { status: newStatus }, { merge: true });
         });
       }
       await setDoc(doc(db, "results", matchId), res);
+      results[matchId] = res;
+      for (const [betId, bet] of Object.entries(matchBets)) {
+        if (!isOpenBetAuto(bet)) continue;
+        const newStatus = betWins(bet, res);
+        if (bets[matchId]?.[betId]) bets[matchId][betId].status = newStatus === true ? "won" : newStatus === "cheated" ? "cheated" : "lost";
+      }
+      updateBalanceDisplay();
     } catch (err) {
       console.error("Auto-settle error:", err);
       _autoSettling.delete(matchId); return;
     }
   } else {
     Object.entries(matchBets).forEach(([, bet]) => {
-      if (bet.status !== "open") return;
+      if (!isOpenBetAuto(bet)) return;
       const outcome = betWins(bet, res);
       bet.status = outcome === true ? "won" : outcome === "cheated" ? "cheated" : "lost";
       if (outcome === true) {
@@ -4072,13 +4097,17 @@ async function penalizeMatchCheaters(matchId, goalTs) {
 
   try {
     await runTransaction(db, async (tx) => {
+      // All reads first
+      const rows = [];
       for (const { betId, bet } of cheaterBets) {
+        const uref = doc(db, "users", bet.userId);
+        const usnap = await tx.get(uref);
+        rows.push({ betId, bet, uref, usnap });
+      }
+      // All writes after
+      for (const { betId, uref, usnap } of rows) {
         const betRef = doc(db, "matches", matchId, "bets", betId);
         tx.set(betRef, { status: "cheated" }, { merge: true });
-
-        const uid = bet.userId;
-        const uref = doc(db, "users", uid);
-        const usnap = await tx.get(uref);
         const curBal = usnap.exists() ? (usnap.data().balance ?? 0) : 0;
         tx.set(uref, { balance: +(curBal - FINE).toFixed(2) }, { merge: true });
       }
