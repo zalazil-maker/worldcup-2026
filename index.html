@@ -738,6 +738,42 @@ footer strong { color: var(--gold-light); }
 .odd-btn.active .odd-sel { color: var(--gold-light); }
 .odd-val { font-size: 1.05rem; font-weight: 800; color: var(--text); }
 .odd-btn.active .odd-val { color: var(--gold-light); }
+.market-hint { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-muted); opacity: .8; }
+
+/* Score exact (steppers, type MPP) */
+.exact-market { margin-bottom: 12px; }
+.exact-stepper {
+  display: flex; align-items: flex-end; justify-content: center; gap: 14px;
+  background: var(--dark3); border: 1.5px solid var(--card-border);
+  border-radius: 10px; padding: 12px; margin-bottom: 8px;
+}
+.exact-team { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
+.exact-team-name { font-size: .82rem; font-weight: 700; text-align: center; line-height: 1.1; }
+.exact-controls { display: flex; align-items: center; gap: 10px; }
+.exact-pm {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: var(--dark2); border: 1.5px solid var(--card-border);
+  color: var(--text); font-size: 1.3rem; font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.exact-pm:hover { border-color: var(--gold); color: var(--gold-light); }
+.exact-num { font-size: 1.7rem; font-weight: 800; min-width: 26px; text-align: center; color: var(--gold-light); }
+.exact-dash { font-size: 1.5rem; font-weight: 800; color: var(--text-muted); padding-bottom: 8px; }
+.exact-add-btn {
+  width: 100%; padding: 11px; border-radius: 10px; cursor: pointer;
+  background: rgba(201,162,39,.14); border: 1.5px solid rgba(201,162,39,.45);
+  color: var(--gold-light); font-size: .95rem; font-weight: 800; transition: all .18s;
+}
+.exact-add-btn:hover { background: rgba(201,162,39,.24); }
+.exact-add-btn.active { background: var(--gold); color: #1a1205; border-color: var(--gold); }
+
+/* Plus d'options */
+.more-options-btn {
+  width: 100%; padding: 9px; margin-bottom: 10px; border-radius: 10px; cursor: pointer;
+  background: transparent; border: 1.5px dashed var(--card-border);
+  color: var(--text-muted); font-size: .85rem; font-weight: 700; transition: all .15s;
+}
+.more-options-btn:hover { border-color: var(--gold); color: var(--gold-light); }
 
 /* Betslip */
 .betslip {
@@ -986,7 +1022,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
-<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-BRA-FRA</div>
+<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-scoreexact</div>
 <canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
@@ -1562,6 +1598,24 @@ function computeOdds(matchId) {
   return odds;
 }
 
+// ── Score exact : cote via Poisson pré-match ─────────────────
+// Taux de buts attendus de chaque équipe selon le niveau Elo (90 min).
+function preMatchLambdas(m) {
+  const ra = TEAM_RATINGS[m.home.name] ?? DEFAULT_RATING;
+  const rb = TEAM_RATINGS[m.away.name] ?? DEFAULT_RATING;
+  const sr = Math.pow(10, (ra - rb) / 480);
+  const total = 2.6; // buts moyens / match en Coupe du Monde
+  return { lH: total * sr / (sr + 1), lA: total / (sr + 1) };
+}
+const EXACT_ODDS_CAP = 50; // plafonne les cotes des scores très rares
+function exactScoreOdds(matchId, h, a) {
+  const m = MATCHES.find((x) => x.id === matchId);
+  if (!m) return 1.05;
+  const { lH, lA } = preMatchLambdas(m);
+  const p = poisson(lH, h) * poisson(lA, a);
+  return Math.min(EXACT_ODDS_CAP, toOdds(p));
+}
+
 // ── Vraies cotes Bet365 via odds-api.io (live in-play) ───────
 // Clé dans firebase-config.js : ODDS_API_KEY. CORS autorisé (*).
 // Les cotes du bookmaker bougent automatiquement en direct quand un but tombe.
@@ -1669,6 +1723,8 @@ let balances = {};            // { userId: { name, balance } }
 let bets = {};                // { matchId: { betId: betObj } }
 let results = {};             // { matchId: { settled, homeScore, awayScore, firstScorer } }
 let betDraft = {};            // { matchId: { market, selection, odds, label } } — sélection en cours
+let exactDraft = {};          // { matchId: { h, a } } — score exact en cours de saisie
+const _moreOpen = new Set();  // matchs avec "Plus d'options" déplié
 let unsubscribers = [];       // Firestore listeners
 
 // ── Utils ──────────────────────────────────────────────────
@@ -2301,8 +2357,9 @@ function saveBringing(matchId) {
 // ════════════════════════════════════════════════════════════
 
 const MARKET_LABELS = {
-  result: "Résultat du match",
+  result: "Qui gagne ?",
   totals: "Plus / Moins de 2,5 buts",
+  exactScore: "Score exact",
   firstScorer: "Première équipe à marquer",
 };
 
@@ -2311,6 +2368,10 @@ function selectionLabel(m, market, sel) {
     return sel === "home" ? `Victoire ${m.home.name}` : sel === "away" ? `Victoire ${m.away.name}` : "Match nul";
   if (market === "totals")
     return sel === "over" ? "Plus de 2,5 buts" : "Moins de 2,5 buts";
+  if (market === "exactScore") {
+    const [h, a] = sel.split("-");
+    return `Score exact ${m.home.name} ${h}–${a} ${m.away.name}`;
+  }
   if (market === "firstScorer")
     return sel === "home" ? `${m.home.name} marque en 1er` : sel === "away" ? `${m.away.name} marque en 1er` : "Aucun but";
   return sel;
@@ -2427,20 +2488,19 @@ function renderMatchBetting(matchId) {
       if (isLive) {
         html += `<div class="live-stake-notice">⚡ Paris en direct — mise max <strong>${LIVE_MAX_STAKE} €</strong></div>`;
       }
-      // Marchés
-      ["result", "totals", "firstScorer"].forEach((market) => {
-        html += `<div class="market"><div class="market-label">${MARKET_LABELS[market]}</div><div class="market-options">`;
+      // ── Marchés ───────────────────────────────────────────
+      const lh = isLive ? (parseInt(ls.home, 10) || 0) : 0;
+      const la = isLive ? (parseInt(ls.away, 10) || 0) : 0;
+      const renderMarket = (market) => {
+        let out = `<div class="market"><div class="market-label">${MARKET_LABELS[market]}</div><div class="market-options">`;
         const opts = market === "result" ? ["home", "draw", "away"]
           : market === "totals" ? ["over", "under"]
           : ["home", "away", "none"];
-        // Live score: once a goal is in, "scores first" for that team (and "no goals") is locked.
-        const lh = isLive ? (parseInt(ls.home, 10) || 0) : 0;
-        const la = isLive ? (parseInt(ls.away, 10) || 0) : 0;
         opts.forEach((sel) => {
           const o = odds[market][sel];
           const active = draft?.legs?.some((l) => l.market === market && l.selection === sel);
-          const short = market === "result" ? (sel === "home" ? "1" : sel === "draw" ? "N" : "2")
-            : market === "totals" ? (sel === "over" ? "+2,5" : "−2,5")
+          const short = market === "result" ? (sel === "home" ? m.home.name : sel === "draw" ? "Nul" : m.away.name)
+            : market === "totals" ? (sel === "over" ? "+ de 2,5" : "− de 2,5")
             : (sel === "home" ? m.home.name : sel === "away" ? m.away.name : "Aucun");
           let locked = false;
           if (market === "firstScorer") {
@@ -2449,18 +2509,63 @@ function renderMatchBetting(matchId) {
             if (sel === "none" && (lh > 0 || la > 0)) locked = true;
           }
           if (locked) {
-            html += `<button class="odd-btn locked" disabled title="Trop tard — déjà marqué">
+            out += `<button class="odd-btn locked" disabled title="Trop tard — déjà marqué">
               <span class="odd-sel">${short}</span><span class="odd-val">🔒</span>
             </button>`;
           } else {
-            html += `<button class="odd-btn${active ? " active" : ""}"
+            out += `<button class="odd-btn${active ? " active" : ""}"
               onclick="selectBet('${matchId}','${market}','${sel}',${o})">
-              <span class="odd-sel">${short}</span><span class="odd-val">${o.toFixed(2)}</span>
+              <span class="odd-sel">${short}</span><span class="odd-val">×${o.toFixed(2)}</span>
             </button>`;
           }
         });
-        html += `</div></div>`;
-      });
+        out += `</div></div>`;
+        return out;
+      };
+
+      // Score exact (widget steppers, type MPP)
+      const renderExact = () => {
+        const ex = exactDraft[matchId] || { h: 1, a: 1 };
+        const o = exactScoreOdds(matchId, ex.h, ex.a);
+        const activeSel = `${ex.h}-${ex.a}`;
+        const isActive = draft?.legs?.some((l) => l.market === "exactScore" && l.selection === activeSel);
+        return `<div class="market exact-market">
+          <div class="market-label">🎯 ${MARKET_LABELS.exactScore} <span class="market-hint">— devine le score, gros gain si pile !</span></div>
+          <div class="exact-stepper">
+            <div class="exact-team">
+              <span class="exact-team-name">${m.home.name}</span>
+              <div class="exact-controls">
+                <button class="exact-pm" onclick="bumpScore('${matchId}','h',-1)">−</button>
+                <span class="exact-num">${ex.h}</span>
+                <button class="exact-pm" onclick="bumpScore('${matchId}','h',1)">+</button>
+              </div>
+            </div>
+            <span class="exact-dash">–</span>
+            <div class="exact-team">
+              <span class="exact-team-name">${m.away.name}</span>
+              <div class="exact-controls">
+                <button class="exact-pm" onclick="bumpScore('${matchId}','a',-1)">−</button>
+                <span class="exact-num">${ex.a}</span>
+                <button class="exact-pm" onclick="bumpScore('${matchId}','a',1)">+</button>
+              </div>
+            </div>
+          </div>
+          <button class="exact-add-btn${isActive ? " active" : ""}" onclick="addExactScore('${matchId}')">
+            ${isActive ? "✓ Score " + ex.h + "–" + ex.a + " ajouté" : "➕ Parier sur " + ex.h + "–" + ex.a + " · ×" + o.toFixed(2)}
+          </button>
+        </div>`;
+      };
+
+      // Mise en page simplifiée : essentiel d'abord, le reste replié
+      html += renderMarket("result");
+      html += renderMarket("totals");
+      html += renderExact();
+      const moreOpen = _moreOpen.has(matchId);
+      html += `<button class="more-options-btn" onclick="toggleMore('${matchId}')">${moreOpen ? "▴ Moins d'options" : "▾ Plus d'options (buteur, combiné…)"}</button>`;
+      if (moreOpen) {
+        html += renderMarket("firstScorer");
+        html += `<div class="bet-info-row" style="margin-top:4px">💡 Astuce : sélectionne plusieurs paris pour faire un combiné (cotes multipliées).</div>`;
+      }
       // Bulletin de pari
       if (draft) {
         const legsHtml = draft.legs.map((leg) =>
@@ -2503,6 +2608,24 @@ function renderMatchBetting(matchId) {
 
   el.innerHTML = html;
   if (betDraft[matchId]) updatePotential(matchId);
+}
+
+// ── Score exact : steppers + ajout au ticket ───────────────
+function bumpScore(matchId, side, delta) {
+  const ex = exactDraft[matchId] || { h: 1, a: 1 };
+  ex[side] = Math.max(0, Math.min(9, (ex[side] ?? 0) + delta));
+  exactDraft[matchId] = ex;
+  renderMatchBetting(matchId);
+}
+function addExactScore(matchId) {
+  const ex = exactDraft[matchId] || { h: 1, a: 1 };
+  const o = exactScoreOdds(matchId, ex.h, ex.a);
+  selectBet(matchId, "exactScore", `${ex.h}-${ex.a}`, o);
+}
+function toggleMore(matchId) {
+  if (_moreOpen.has(matchId)) _moreOpen.delete(matchId);
+  else _moreOpen.add(matchId);
+  renderMatchBetting(matchId);
 }
 
 // ── Sélection d'un pari ────────────────────────────────────
@@ -2716,6 +2839,10 @@ function betLegWins(leg, res) {
   if (leg.market === "totals") {
     const total = res.homeScore + res.awayScore;
     return leg.selection === "over" ? total > 2.5 : total < 2.5;
+  }
+  if (leg.market === "exactScore") {
+    const [h, a] = leg.selection.split("-").map((n) => parseInt(n, 10));
+    return res.homeScore === h && res.awayScore === a;
   }
   if (leg.market === "firstScorer") {
     // Cheat detection: if they bet on a team that had already scored when they placed the bet
