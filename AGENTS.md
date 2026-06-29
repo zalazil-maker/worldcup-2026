@@ -160,8 +160,20 @@ That's the whole recipe. No Firestore migration needed — new match IDs just wo
 
 ## 5. Betting mechanics
 
-- **Markets:** `result` (1/N/2), `totals` (over/under 2.5), `firstScorer`
+- **Markets:** `result` (1/N/2), `totals` (over/under 2.5), `exactScore`
+  (selection is the scoreline string `"H-A"`, e.g. `"2-1"`), `firstScorer`
   (home/away/none). Labels in `MARKET_LABELS`, odds in `computeOdds(matchId)`.
+- **Score exact (MPP-style):** the simple headline market. UI = ± steppers
+  (`bumpScore`), live odds via `exactScoreOdds(matchId,h,a)` (Poisson from
+  `preMatchLambdas`, capped at `EXACT_ODDS_CAP=50`), "Parier" button =
+  `addExactScore` → `selectBet(...,"exactScore","H-A",odds)`. It's a normal bet
+  leg: settled in `betLegWins` (win iff `res.homeScore==H && res.awayScore==A`),
+  combinable, refundable, cancellable like any other. Stepper state lives in
+  `exactDraft`. Only offered pre-match (whole betting zone locks once live).
+- **Simplified layout:** `result` + `totals` + score-exact widget show by default;
+  `firstScorer` + combo tip are behind the **"Plus d'options"** toggle
+  (`toggleMore`, state in `_moreOpen`). Result/totals buttons show the team name
+  and `×odds` (not 1/N/2) so newcomers get it instantly.
 - **Odds:** real Bet365 odds from odds-api.io when available (`liveOdds`),
   otherwise an internal Elo/Poisson model from `TEAM_RATINGS`. Live matches get
   a live model.
