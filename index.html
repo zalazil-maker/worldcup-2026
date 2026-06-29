@@ -986,7 +986,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
-<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v23jun-C</div>
+<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-BRA-FRA</div>
 <canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
@@ -1295,6 +1295,20 @@ const MATCHES = [
     home: { name: "16ème de Finale", flag: "" },
     away: { name: "", flag: "" },
   },
+  {
+    id: "m25",
+    date: "2026-06-29", time: "19:00",
+    label: "Lundi 29 Juin 2026",
+    home: { name: "Brésil", flag: "br" },
+    away: { name: "Japon", flag: "jp" },
+  },
+  {
+    id: "m26",
+    date: "2026-06-30", time: "23:00",
+    label: "Mardi 30 Juin 2026",
+    home: { name: "France", flag: "fr" },
+    away: { name: "Suède", flag: "se" },
+  },
 ];
 
 const BRINGING_OPTIONS = [
@@ -1322,7 +1336,7 @@ const TEAM_RATINGS = {
   "Arabie Saoudite": 1610, "Iran": 1605, "Qatar": 1600,
   "Équateur": 1590, "Curaçao": 1450, "Haïti": 1500,
   "Argentine": 2040, "Autriche": 1750, "Irak": 1530, "Ghana": 1620,
-  "Ouzbékistan": 1540,
+  "Ouzbékistan": 1540, "Japon": 1785,
 };
 const DEFAULT_RATING = 1700;
 
@@ -1340,7 +1354,7 @@ const NAME_MAP = {            // nos noms FR → noms de l'API (EN)
   "Curaçao": "Curacao", "Espagne": "Spain", "Arabie Saoudite": "Saudi Arabia",
   "Belgique": "Belgium", "Iran": "Iran", "Suède": "Sweden",
   "Argentine": "Argentina", "Autriche": "Austria", "Irak": "Iraq", "Ghana": "Ghana",
-  "Ouzbékistan": "Uzbekistan",
+  "Ouzbékistan": "Uzbekistan", "Japon": "Japan",
 };
 
 const MARGIN = 1.06;       // marge "bookmaker" (~6%) sur les cotes
