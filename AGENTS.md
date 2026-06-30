@@ -93,6 +93,26 @@ All paths are exact. Reads use `onSnapshot` (realtime); writes use `setDoc` /
 
 `uid` is a random id in `localStorage` under `wc2026_uid` (see `userId()`).
 
+### Identity & account recovery (PIN)
+
+There is no real auth — identity = display name + a 4-digit **PIN** (stored hashed
+in `users/{uid}.pin` via `hashPin()`, a light djb2 obfuscation, not strong crypto).
+
+- **Device login:** if `localStorage.wc2026_name` is set, `initUser()` logs in by
+  device possession, no PIN asked.
+- **New signup:** the name modal requires name **+ a 4-digit PIN**; the PIN is
+  written to the user doc.
+- **Account recovery** (same name, different/wiped device — e.g. Edge clears
+  `localStorage`): typing an existing name requires the matching PIN, then adopts
+  that account's `uid` (`localStorage.wc2026_uid = takenBy.id`) so balance/bets/
+  votes come back. Wrong PIN → blocked. This is what stops name-theft.
+- **Legacy accounts (no PIN yet):** first recovery sets the PIN (claim). Logged-in
+  pin-less users are nudged by `promptSetPinIfNeeded()` → `showSecureAccountModal()`.
+- **Forgot PIN:** admin clears it with the 🔑 button (`adminResetPin`, sets
+  `pin:null`); the player picks a new one on next login.
+- The name modal is shared by 3 flows (signup, secure-account, rename via
+  `changeName`); each resets the title/description/PIN-field visibility it needs.
+
 ---
 
 ## 4. The MATCHES array — how to add matches (do it exactly like this)
