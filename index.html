@@ -1022,7 +1022,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
-<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-scoreexact</div>
+<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-floorcredit</div>
 <canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
@@ -1714,6 +1714,7 @@ async function fetchLiveOdds() {
 
 const START_BALANCE = 100;  // € fictifs au départ
 const LIVE_MAX_STAKE = 20;  // € max par pari en cours de match (anti-abus)
+const BET_FLOOR = -30;      // plancher : on peut parier à crédit jusqu'à ce solde
 
 // ── State ──────────────────────────────────────────────────
 let currentUser = null;       // { id, name }
@@ -2456,8 +2457,8 @@ function renderMatchBetting(matchId) {
   if (!result?.settled) {
     if (!isPresent) {
       html += `<div class="bet-locked">🎟️ Vote « Je viens » pour pouvoir parier sur ce match.</div>`;
-    } else if (myBalance() <= -30) {
-      html += `<div class="bet-locked">🚫 Paris bloqués — solde inférieur à −30 €.<br><small>Ton solde actuel : <strong>${myBalance().toFixed(2)} €</strong>. Tu ne peux plus parier tant que tu n'es pas au-dessus de −30 €.</small></div>`;
+    } else if (myBalance() <= BET_FLOOR) {
+      html += `<div class="bet-locked">🚫 Paris bloqués — tu as atteint le plancher de ${BET_FLOOR} €.<br><small>Ton solde actuel : <strong>${myBalance().toFixed(2)} €</strong>. Tu ne peux plus parier tant que tu n'es pas au-dessus de ${BET_FLOOR} €.</small></div>`;
     } else {
       const draft = betDraft[matchId];
       const ls = liveScores[matchId];
@@ -2473,7 +2474,8 @@ function renderMatchBetting(matchId) {
           <small>Les paris ne sont acceptés qu'avant le coup d'envoi.</small>
         </div>`;
       } else {
-      const maxStake = isLive ? Math.min(LIVE_MAX_STAKE, myBalance()) : myBalance();
+      const spendable = +(myBalance() - BET_FLOOR).toFixed(2); // crédit dispo jusqu'au plancher
+      const maxStake = isLive ? Math.min(LIVE_MAX_STAKE, spendable) : spendable;
       let oddsSource;
       if (real) {
         oddsSource = (isLive || real.live)
@@ -2484,7 +2486,7 @@ function renderMatchBetting(matchId) {
       } else {
         oddsSource = "· cotes pré-match — modèle Elo interne 📈";
       }
-      html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> <span class="odds-hint">${oddsSource}</span></div>`;
+      html += `<div class="bet-balance-line">💰 Ton solde : <strong>${myBalance().toFixed(2)} €</strong> · mise max <strong>${maxStake.toFixed(2)} €</strong> <span class="odds-hint">${oddsSource}</span></div>`;
       if (isLive) {
         html += `<div class="live-stake-notice">⚡ Paris en direct — mise max <strong>${LIVE_MAX_STAKE} €</strong></div>`;
       }
@@ -2688,8 +2690,8 @@ async function placeBet(matchId) {
   if (_isLive && stake > LIVE_MAX_STAKE) {
     showToast(`🔒 Mise max en direct : ${LIVE_MAX_STAKE} €`); return;
   }
-  if (myBalance() <= -30) { showToast("🚫 Paris bloqués — solde en dessous de −30 €."); return; }
-  if (stake > myBalance()) { showToast("💸 Solde insuffisant !"); return; }
+  if (myBalance() <= BET_FLOOR) { showToast(`🚫 Paris bloqués — tu as atteint le plancher de ${BET_FLOOR} €.`); return; }
+  if (stake > myBalance() - BET_FLOOR) { showToast(`💸 Ce pari te ferait passer sous ${BET_FLOOR} € (plancher). Mise max : ${(myBalance() - BET_FLOOR).toFixed(2)} €.`); return; }
   const myVote = (votes[matchId] || {})[currentUser.id];
   if (myVote?.coming !== true) { showToast("🎟️ Vote « Je viens » d'abord."); return; }
 
@@ -2733,14 +2735,19 @@ async function placeBet(matchId) {
         const uref = doc(db, "users", currentUser.id);
         const usnap = await tx.get(uref);
         const cur = usnap.exists() ? (usnap.data().balance ?? START_BALANCE) : START_BALANCE;
-        if (stake > cur) throw new Error("insufficient");
+        if (cur <= BET_FLOOR) throw new Error("floor");
+        if (stake > cur - BET_FLOOR) throw new Error("insufficient");
         tx.set(uref, { name: currentUser.name, balance: +(cur - stake).toFixed(2) }, { merge: true });
       });
       await setDoc(doc(db, "matches", matchId, "bets", betId), bet);
       if (!bets[matchId]) bets[matchId] = {};
       bets[matchId][betId] = bet;
     } catch (err) {
-      showToast(err.message === "insufficient" ? "💸 Solde insuffisant !" : "Erreur, réessaie.");
+      showToast(
+        err.message === "insufficient" ? `💸 Ce pari dépasse ta mise max (plancher ${BET_FLOOR} €).`
+        : err.message === "floor" ? `🚫 Plancher de ${BET_FLOOR} € atteint.`
+        : "Erreur, réessaie."
+      );
       return;
     }
   } else {
