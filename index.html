@@ -592,6 +592,9 @@ main {
 }
 .modal-box input:focus { border-color: var(--gold); }
 .modal-box input::placeholder { color: var(--text-muted); }
+.pin-hint { color: var(--text-muted); font-size: .78rem; margin: -8px 0 14px; line-height: 1.35; }
+.modal-error { color: #f87171; font-size: .82rem; margin: -6px 0 10px; min-height: 0; }
+.modal-error:empty { margin: 0; }
 .modal-confirm-btn {
   width: 100%;
   background: linear-gradient(135deg, var(--gold), var(--gold-light));
@@ -1022,7 +1025,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
-<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-relogin</div>
+<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-pin</div>
 <canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
@@ -1060,6 +1063,10 @@ footer strong { color: var(--gold-light); }
     <h2>Bienvenue !</h2>
     <p>Entre ton prénom pour voter et dire ce que tu ramènes.</p>
     <input type="text" id="name-input" placeholder="Ton prénom..." maxlength="30" autocomplete="off" />
+    <input type="password" id="pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+      placeholder="Code secret à 4 chiffres" autocomplete="off" />
+    <p id="pin-hint" class="pin-hint">🔒 Choisis un code à 4 chiffres pour protéger ton compte (à retenir !).</p>
+    <p id="name-error" class="modal-error"></p>
     <button class="modal-confirm-btn" id="name-confirm">C'est parti ! 🎉</button>
   </div>
 </div>
@@ -1760,6 +1767,13 @@ function userId() {
   return id;
 }
 
+// Hash léger d'un code PIN (obfuscation pour appli entre amis, pas de la crypto forte)
+function hashPin(pin) {
+  let h = 5381;
+  for (let i = 0; i < pin.length; i++) h = ((h << 5) + h + pin.charCodeAt(i)) >>> 0;
+  return "p" + h.toString(36);
+}
+
 function initUser() {
   const name = localStorage.getItem("wc2026_name");
   if (name) {
@@ -1785,9 +1799,19 @@ function changeName() {
   const input = document.getElementById("name-input");
   const btn = document.getElementById("name-confirm");
   input.value = currentUser?.name || "";
+  input.disabled = false;
   clearModalError();
+  // Mode "changer de prénom" : pas de PIN ici (même appareil = déjà authentifié)
+  const pinEl = document.getElementById("pin-input");
+  const hint = document.getElementById("pin-hint");
+  if (pinEl) pinEl.style.display = "none";
+  if (hint) hint.style.display = "none";
+  const title = modal.querySelector("h2");
+  const desc = modal.querySelector("p");
+  if (title) title.textContent = "Changer de prénom";
+  if (desc) desc.textContent = "Modifie ton prénom affiché.";
   btn.disabled = false;
-  btn.textContent = "C'est parti ! 🎉";
+  btn.textContent = "Enregistrer ✏️";
   modal.classList.remove("hidden");
 
   // Override confirm for rename (same uid — uniqueness check still applies)
@@ -3483,17 +3507,21 @@ function setupNameModal() {
 
   async function confirm() {
     const name = input.value.trim();
+    const pinEl = document.getElementById("pin-input");
+    const pin = (pinEl?.value || "").trim();
     if (!name) { input.focus(); return; }
     if (name.length < 2) { setModalError("Prénom trop court."); return; }
+    if (!/^\d{4}$/.test(pin)) { setModalError("Choisis un code à 4 chiffres."); return; }
 
     btn.disabled = true;
     btn.textContent = "Vérification…";
     clearModalError();
 
-    // ── Compte existant ? → reconnexion (récupère solde, paris, votes) ──
+    // ── Compte existant ? → reconnexion protégée par code PIN ──
     // Si le prénom existe déjà sous un autre identifiant, c'est un joueur qui
-    // revient (ex : nouveau téléphone, navigateur qui a effacé le stockage local
-    // comme Edge). On adopte son compte existant au lieu de le bloquer.
+    // revient (nouveau téléphone, navigateur qui a effacé le stockage local
+    // comme Edge). On exige son code PIN avant d'adopter le compte → protège
+    // contre le vol d'identité (taper le nom de quelqu'un d'autre).
     let returning = false;
     if (db) {
       try {
@@ -3505,6 +3533,16 @@ function setupNameModal() {
           (d.data().name || "").toLowerCase() === name.toLowerCase()
         );
         if (takenBy) {
+          const data = takenBy.data();
+          if (data.pin) {
+            // Compte protégé → le PIN doit correspondre
+            if (hashPin(pin) !== data.pin) {
+              setModalError("❌ Code PIN incorrect pour ce compte.");
+              btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
+              return;
+            }
+          }
+          // Compte legacy sans PIN → le 1er à se reconnecter définit son PIN
           // Reprend l'identifiant du compte existant sur cet appareil
           localStorage.setItem("wc2026_uid", takenBy.id);
           returning = true;
@@ -3516,6 +3554,13 @@ function setupNameModal() {
     localStorage.setItem("wc2026_name", name);
     currentUser = { id: userId(), name };
     await ensureBalance();
+    // Enregistre / met à jour le PIN du compte (nouveau compte ou legacy sans PIN)
+    if (db) {
+      try {
+        const { doc, setDoc } = window._firebaseModules;
+        await setDoc(doc(db, "users", currentUser.id), { name, pin: hashPin(pin) }, { merge: true });
+      } catch (_) {}
+    }
     document.getElementById("name-modal").classList.add("hidden");
     updateIdentityBar();
     renderMatches();
@@ -3526,7 +3571,55 @@ function setupNameModal() {
   }
 
   btn.addEventListener("click", confirm);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") document.getElementById("pin-input")?.focus(); });
+  document.getElementById("pin-input")?.addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); });
+}
+
+// Compte déjà connecté (sur cet appareil) mais sans PIN → invite à en définir un
+async function promptSetPinIfNeeded() {
+  if (!db || !currentUser) return;
+  try {
+    const { doc, getDoc } = window._firebaseModules;
+    const snap = await getDoc(doc(db, "users", currentUser.id));
+    if (snap.exists() && !snap.data().pin) showSecureAccountModal();
+  } catch (_) {}
+}
+
+function showSecureAccountModal() {
+  const modal = document.getElementById("name-modal");
+  const input = document.getElementById("name-input");
+  const pinEl = document.getElementById("pin-input");
+  const btn = document.getElementById("name-confirm");
+  const hint = document.getElementById("pin-hint");
+  const title = modal.querySelector("h2");
+  const desc = modal.querySelector("p");
+  input.value = currentUser.name; input.disabled = true;
+  pinEl.value = "";
+  pinEl.style.display = ""; if (hint) hint.style.display = "";
+  if (title) title.textContent = "🔒 Protège ton compte";
+  if (desc) desc.textContent = "Choisis un code secret à 4 chiffres. Il sert à récupérer ton compte si tu changes de téléphone ou de navigateur — et empêche les autres de l'utiliser.";
+  if (hint) hint.textContent = "À retenir : personne ne pourra entrer sur ton compte sans ce code.";
+  btn.textContent = "🔒 Protéger mon compte";
+  clearModalError();
+  modal.classList.remove("hidden");
+  pinEl.focus();
+  const submit = async () => {
+    const pin = (pinEl.value || "").trim();
+    if (!/^\d{4}$/.test(pin)) { setModalError("Choisis un code à 4 chiffres."); return; }
+    btn.disabled = true; btn.textContent = "…";
+    try {
+      const { doc, setDoc } = window._firebaseModules;
+      await setDoc(doc(db, "users", currentUser.id), { pin: hashPin(pin) }, { merge: true });
+      modal.classList.add("hidden");
+      input.disabled = false;
+      showToast("🔒 Compte protégé ! Retiens bien ton code.");
+    } catch (_) {
+      setModalError("Erreur, réessaie.");
+      btn.disabled = false; btn.textContent = "🔒 Protéger mon compte";
+    }
+  };
+  btn.onclick = submit;
+  pinEl.onkeydown = (e) => { if (e.key === "Enter") submit(); };
 }
 
 function showWelcome(name) {
@@ -3655,6 +3748,18 @@ function unlockAdmin() {
     err.textContent = "❌ Code incorrect.";
     input.value = "";
   }
+}
+
+// Réinitialise le code PIN d'un joueur (s'il l'a oublié) : il en choisira un
+// nouveau à sa prochaine connexion.
+async function adminResetPin(uid, name) {
+  if (!db) { showToast("Mode démo non disponible."); return; }
+  if (!confirm(`Réinitialiser le code PIN de « ${name} » ?\n\nIl pourra définir un nouveau code en se reconnectant avec son prénom.`)) return;
+  try {
+    const { doc, setDoc } = window._firebaseModules;
+    await setDoc(doc(db, "users", uid), { pin: null }, { merge: true });
+    showToast(`🔑 Code PIN de ${name} réinitialisé.`);
+  } catch (err) { console.error(err); showToast("Erreur : " + err.message); }
 }
 
 async function deletePlayer(uid) {
@@ -3982,6 +4087,7 @@ function _renderAdminDashboard(el) {
       <td style="display:flex;gap:4px">
         <button class="admin-del" title="Audit complet des paris" onclick="auditPlayer('${p.id}','${(p.name||'').replace(/'/g,"\\'")}')">🔍</button>
         <button class="admin-del" title="Modifier le solde" onclick="promptBalanceAdjust('${p.id}','${(p.name||'').replace(/'/g,"\\'")}',${num(p.balance).toFixed(2)})">✏️</button>
+        <button class="admin-del" title="Réinitialiser le code PIN" onclick="adminResetPin('${p.id}','${(p.name||'').replace(/'/g,"\\'")}')">🔑</button>
         <button class="admin-del" title="Supprimer ce compte" onclick="deletePlayer('${p.id}')">🗑️</button>
       </td>
     </tr>`;
@@ -4303,6 +4409,7 @@ async function penalizeMatchCheaters(matchId, goalTs) {
   if (initUser()) {
     renderMatches();
     autoEnableNotifications();
+    promptSetPinIfNeeded(); // compte legacy sans PIN → invite à le sécuriser
     // Au chargement : règle les matchs passés non réglés + corrige les paris en attente
     // Attend que les données Firestore soient chargées avant de tenter le règlement.
     (async () => {
