@@ -1022,7 +1022,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
-<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-floorcredit</div>
+<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v29jun-relogin</div>
 <canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
@@ -3490,7 +3490,11 @@ function setupNameModal() {
     btn.textContent = "Vérification…";
     clearModalError();
 
-    // ── Check name uniqueness in Firebase ──────────────────
+    // ── Compte existant ? → reconnexion (récupère solde, paris, votes) ──
+    // Si le prénom existe déjà sous un autre identifiant, c'est un joueur qui
+    // revient (ex : nouveau téléphone, navigateur qui a effacé le stockage local
+    // comme Edge). On adopte son compte existant au lieu de le bloquer.
+    let returning = false;
     if (db) {
       try {
         const { collection, getDocs } = window._firebaseModules;
@@ -3501,23 +3505,24 @@ function setupNameModal() {
           (d.data().name || "").toLowerCase() === name.toLowerCase()
         );
         if (takenBy) {
-          setModalError(`❌ "${name}" est déjà pris — essaie "${name}2" ou un surnom.`);
-          btn.disabled = false; btn.textContent = "C'est parti ! 🎉";
-          return;
+          // Reprend l'identifiant du compte existant sur cet appareil
+          localStorage.setItem("wc2026_uid", takenBy.id);
+          returning = true;
         }
       } catch (_) { /* hors-ligne → on laisse passer */ }
     }
 
-    // ── Enregistrement ─────────────────────────────────────
+    // ── Enregistrement / reconnexion ───────────────────────
     localStorage.setItem("wc2026_name", name);
     currentUser = { id: userId(), name };
+    await ensureBalance();
     document.getElementById("name-modal").classList.add("hidden");
     updateIdentityBar();
     renderMatches();
     autoEnableNotifications();
 
-    // ── Notification de bienvenue ──────────────────────────
-    showWelcome(name);
+    if (returning) showToast(`👋 Content de te revoir, ${name} ! Ton compte est récupéré.`);
+    else showWelcome(name);
   }
 
   btn.addEventListener("click", confirm);
