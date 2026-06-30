@@ -183,10 +183,12 @@ That's the whole recipe. No Firestore migration needed — new match IDs just wo
   accumulates legs (same selection again = toggle off; different selection in same
   market = replace). Combined odds = product of leg odds. Stored in `bet.legs[]`.
   Single bets do NOT get a `legs` array (kept flat for back-compat).
-- **Minimum balance floor: −30 €.** If `myBalance() <= -30`, the betting UI is
-  replaced with a locked message and `placeBet()` hard-blocks the request. Balances
-  go negative only through admin fines (e.g. the 50 € cheat penalty). To unblock
-  a player, adjust their balance above −30 via the admin ✏️ button.
+- **Betting floor: `BET_FLOOR = -30 €` (credit limit).** You can bet *on credit*
+  down to the floor — max stake = `myBalance() - BET_FLOOR` (i.e. balance + 30),
+  not just your current balance. So someone at 1.50 € can still stake up to 31.50 €.
+  Only when `myBalance() <= BET_FLOOR` is the betting UI locked and `placeBet()`
+  hard-blocks (transaction throws `"floor"`; over-stake throws `"insufficient"`).
+  To unblock a maxed-out player, raise their balance above −30 via admin ✏️.
 - **Cancelling** (`cancelBet` user-side, `adminCancelBet` admin-side): both prompt
   for a refund amount (full stake / 0 / custom; admin can enter a negative number
   to deduct). User can only cancel their own **open** bets on **unsettled** matches.
