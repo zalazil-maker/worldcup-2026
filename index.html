@@ -839,6 +839,10 @@ footer strong { color: var(--gold-light); }
   margin-top: 10px; font-size: .78rem; color: var(--text-muted);
   text-align: center; padding: 6px; border-top: 1px solid var(--card-border);
 }
+.bet-info-warn {
+  color: #fca5a5; border-top: none; margin-top: 4px;
+  background: rgba(239,68,68,.08); border-radius: 8px; line-height: 1.4;
+}
 
 /* ── Admin dashboard ──────────────────────────────────────── */
 #admin-link {
@@ -942,6 +946,11 @@ footer strong { color: var(--gold-light); }
 }
 .settle-confirm:hover { filter: brightness(1.1); }
 .settle-warn { font-size: .75rem; color: var(--text-muted); margin-top: 6px; }
+.settle-note {
+  font-size: .78rem; color: #fcd34d; line-height: 1.4; margin: 4px 0 10px;
+  background: rgba(201,162,39,.1); border: 1px solid rgba(201,162,39,.3);
+  border-radius: 8px; padding: 8px 10px;
+}
 .admin-del {
   background: none; border: 1px solid rgba(239,68,68,.3);
   border-radius: 6px; padding: 3px 7px; cursor: pointer; font-size: .85rem;
@@ -1025,7 +1034,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
-<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v06jul-por-esp</div>
+<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v06jul-notes</div>
 <canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
@@ -2658,6 +2667,7 @@ function renderMatchBetting(matchId) {
   // Le règlement est automatique (live score FT → autoSettleFromLive)
   if (!result?.settled && !isPast(m)) {
     html += `<div class="bet-info-row">⏳ Les paris sont réglés automatiquement à la fin du match.</div>`;
+    html += `<div class="bet-info-row bet-info-warn">🚫 Anti-triche : tout pari lié aux buts (score exact, plus/moins de buts, première équipe à marquer) placé <strong>après un but</strong> ou <strong>juste avant un penalty</strong> sera annulé. Mise perdue.</div>`;
   }
 
   el.innerHTML = html;
@@ -2871,6 +2881,7 @@ function openSettleForm(matchId) {
   const av = ls && ls.away != null ? ls.away : 0;
   el.innerHTML = `
     ${ls && (ls.home != null) ? `<p class="settle-prefill">⚽ Score récupéré en direct : ${hv}-${av} (vérifie avant de valider)</p>` : ""}
+    <p class="settle-note">⏱️ En phase à élimination, entre le score <strong>après prolongation (120 min)</strong>, pas seulement les 90 min. En cas de tirs au but, garde le score de fin de prolongation (les penalties ne comptent pas dans le score).</p>
     <div class="settle-grid">
       <label>${m.home.name}<input type="number" id="hs-${matchId}" min="0" value="${hv}" /></label>
       <span class="settle-dash">-</span>
