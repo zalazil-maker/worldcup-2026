@@ -1034,7 +1034,7 @@ footer strong { color: var(--gold-light); }
 </style>
 </head>
 <body>
-<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v06jul-notes</div>
+<div style="position:fixed;bottom:4px;right:6px;font-size:10px;color:#475569;z-index:99999;pointer-events:none">v06jul-oddscap</div>
 <canvas id="confetti-canvas"></canvas>
 
 <!-- Install banner -->
@@ -1651,7 +1651,8 @@ function preMatchLambdas(m) {
   const total = 2.6; // buts moyens / match en Coupe du Monde
   return { lH: total * sr / (sr + 1), lA: total / (sr + 1) };
 }
-const EXACT_ODDS_CAP = 50; // plafonne les cotes des scores très rares
+const EXACT_ODDS_CAP = 15;      // plafonne les cotes d'un score exact (rares)
+const MAX_COMBINED_ODDS = 25;   // plafonne la cote totale d'un combiné (anti-explosion)
 function exactScoreOdds(matchId, h, a) {
   const m = MATCHES.find((x) => x.id === matchId);
   if (!m) return 1.05;
@@ -2635,7 +2636,7 @@ function renderMatchBetting(matchId) {
           `<div class="betslip-leg"><span>${leg.label}</span><span class="betslip-odd">@ ${leg.odds.toFixed(2)}</span></div>`
         ).join("");
         const combinedLine = draft.legs.length > 1
-          ? `<div class="betslip-combined-odds">🎯 Cote combinée : <strong>${draft.odds.toFixed(2)}</strong></div>`
+          ? `<div class="betslip-combined-odds">🎯 Cote combinée : <strong>${draft.odds.toFixed(2)}</strong>${draft.capped ? ` <span class="odds-hint">(plafonnée à ${MAX_COMBINED_ODDS})</span>` : ""}</div>`
           : "";
         html += `<div class="betslip">
           ${legsHtml}
@@ -2713,10 +2714,12 @@ function selectBet(matchId, market, selection, oddVal) {
   if (!legs.length) {
     betDraft[matchId] = null;
   } else {
-    const combinedOdds = +legs.reduce((acc, l) => acc * l.odds, 1).toFixed(2);
+    const rawOdds = legs.reduce((acc, l) => acc * l.odds, 1);
+    const combinedOdds = +Math.min(MAX_COMBINED_ODDS, rawOdds).toFixed(2);
     betDraft[matchId] = {
       legs,
       odds: combinedOdds,
+      capped: rawOdds > MAX_COMBINED_ODDS,
       // keep top-level fields for backward-compat single-leg checks
       market: legs[0].market,
       selection: legs[0].selection,
